@@ -1,0 +1,51 @@
+{
+  "os":  "Linux-6.8.0-41-generic-x86_64-with-glibc2.39",
+  "python":  "3.11.10",
+  "startedAt":  "2024-10-30T16:10:03.418623Z",
+  "args":  [
+    "-e",
+    "100"
+  ],
+  "program":  "/Users/kaya/Repos/synaptax/src/synaptax/model.py",
+  "codePath":  "src/synaptax/model.py",
+  "git":  {
+    "remote":  "https://github.com/AnilKy001/synaptax",
+    "commit":  "78f03ed0df5161455313b97e7cb98dbcaea64fdb"
+  },
+  "email":  "a.kaya@fz-juelich.de",
+  "root":  "/Users/kaya/Repos/synaptax/src/synaptax",
+  "host":  "pgi15-cpu2.iff.kfa-juelich.de",
+  "username":  "kaya",
+  "executable":  "/Users/kaya/miniconda3/envs/graphax/bin/python",
+  "codePathLocal":  "model.py",
+  "cpu_count":  192,
+  "cpu_count_logical":  384,
+  "gpu":  "NVIDIA GeForce RTX 4090",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "988956708864",
+      "used":  "21220937728"
+    }
+  },
+  "memory":  {
+    "total":  "810971279360"
+  },
+  "cpu":  {
+    "count":  192,
+    "countLogical":  384
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA GeForce RTX 4090",
+      "memoryTotal":  "25757220864",
+      "cudaCores":  16384,
+      "architecture":  "Ada"
+    }
+  ],
+  "slurm":  {
+    "conf":  "/etc/slurm/slurm.conf",
+    "job_id":  "2004"
+  },
+  "cudaVersion":  "12.6"
+}
