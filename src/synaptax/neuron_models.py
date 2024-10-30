@@ -1,10 +1,12 @@
 import jax
+import jax.lax as lax
 import jax.numpy as jnp
 
-# SNN definition:
+
+# surrogate definition:
 surrogate = lambda x: 1. / (1. + 1.*jnp.abs(x))
 
-def SNN_LIF(in_, z, u, W, V):
+def SNN_LIF(in_, z, u, W):
     '''
     Single layer SNN with implicit and explicit recurrence.
     x: layer spike inputs.
@@ -14,12 +16,31 @@ def SNN_LIF(in_, z, u, W, V):
     V: explicit recurrence weights.
     '''
     beta = 0.95
-    u_next = beta * u + (1. - beta) * (jnp.dot(W, in_) + jnp.dot(V, z))
+    u_next = beta * u + (1. - beta) * jnp.dot(W, in_)
+    surr = surrogate(u_next)
+    # Trick so that in forward pass we get the heaviside spike output and in
+    # backward pass we get the derivative of surrogate only without heaviside.
+    z_next = lax.stop_gradient(jnp.heaviside(u_next, 0.) - surr) + surr
+    return z_next, u_next
+
+
+def SNN_rec_LIF(x, z, u, W, V):
+    '''
+    Single layer SNN with implicit and explicit recurrence.
+    x: layer spike inputs.
+    z: previous timestep layer spike outputs.
+    v: membrane potential.
+    W: implicit recurrence weights.
+    V: explicit recurrence weights.
+    '''
+    beta = 0.95 # seems to work best with this value
+    u_next = beta * u + (1. - beta) * (jnp.dot(W, x)+ jnp.dot(V, z))
     surr = surrogate(u_next)
     # Trick so that in forward pass we get the heaviside spike output and in
     # backward pass we get the derivative of surrogate only without heaviside.
     z_next = jax.lax.stop_gradient(jnp.heaviside(u_next, 0.) - surr) + surr
     return z_next, u_next
+
 
 def SNN_Sigma_Delta(in_, z, e, u_mem, s, i, W, V):
     input_decay = .95
@@ -35,3 +56,4 @@ def SNN_Sigma_Delta(in_, z, e, u_mem, s, i, W, V):
     z_out = jax.lax.stop_gradient(jnp.heaviside(u_mem - threshold_, .0) - surr_) + surr_
     s = s * feedback_decay + z_out
     return z_out, e, u_mem, s, i
+
