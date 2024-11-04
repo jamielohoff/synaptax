@@ -46,7 +46,6 @@ def make_bptt_step(model, optim, loss_fn, unroll: int = 10):
     return bptt_train_step
 
 
-
 ### Recurrent LIF BPTT
 def make_bptt_rec_timeloop(model, loss_fn, unroll: int = 10):
     def rec_SNN_bptt_timeloop(in_seq, tgt, z0, u0, W, V, W_out):

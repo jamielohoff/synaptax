@@ -6,7 +6,7 @@ import jax.numpy as jnp
 # surrogate definition:
 surrogate = lambda x: 1. / (1. + 1.*jnp.abs(x))
 
-def SNN_LIF(in_, z, u, W):
+def SNN_LIF(x, z, u, W):
     '''
     Single layer SNN with implicit and explicit recurrence.
     x: layer spike inputs.
@@ -15,12 +15,14 @@ def SNN_LIF(in_, z, u, W):
     W: implicit recurrence weights.
     V: explicit recurrence weights.
     '''
-    beta = 0.95
-    u_next = beta * u + (1. - beta) * jnp.dot(W, in_)
+    beta = .95
+    threshold = 1.
+    u_next = beta * u + (1. - beta) * jnp.dot(W, x)
     surr = surrogate(u_next)
     # Trick so that in forward pass we get the heaviside spike output and in
     # backward pass we get the derivative of surrogate only without heaviside.
-    z_next = lax.stop_gradient(jnp.heaviside(u_next, 0.) - surr) + surr
+    z_next = lax.stop_gradient(jnp.heaviside(u_next-threshold, 0.) - surr) + surr
+    u_next -= z_next * threshold # spike reset
     return z_next, u_next
 
 
@@ -34,11 +36,13 @@ def SNN_rec_LIF(x, z, u, W, V):
     V: explicit recurrence weights.
     '''
     beta = 0.95 # seems to work best with this value
+    threshold = 1.
     u_next = beta * u + (1. - beta) * (jnp.dot(W, x)+ jnp.dot(V, z))
     surr = surrogate(u_next)
     # Trick so that in forward pass we get the heaviside spike output and in
     # backward pass we get the derivative of surrogate only without heaviside.
-    z_next = jax.lax.stop_gradient(jnp.heaviside(u_next, 0.) - surr) + surr
+    z_next = lax.stop_gradient(jnp.heaviside(u_next-threshold, 0.) - surr) + surr
+    u_next -= z_next * threshold
     return z_next, u_next
 
 

@@ -79,7 +79,7 @@ def predict(in_seq, model, weights, z0, u0):
     def loop_fn(carry, x):
         z, u, z_total = carry
         z_next, u_next = model(x, z, u, *Ws)
-        z_total += W_out @ z_next
+        z_total += jnp.dot(W_out, z_next)
         carry = (z_next, u_next, z_total)
         return carry, None
 
@@ -111,7 +111,7 @@ def eval_model(data_loader, model, weights, z0, u0):
 z0 = jnp.zeros(NUM_HIDDEN)
 u0 = jnp.zeros(NUM_HIDDEN)
 
-wkey, vkey, woutkey, G_W_key, G_V_key = jrand.split(key, 5)
+wkey, woutkey = jrand.split(key, 2)
 
 def xavier_normal(key, shape):
     # Calculate the standard deviation for Xavier normal initialization
@@ -124,14 +124,14 @@ def xavier_normal(key, shape):
 init_fn = xavier_normal # jax.nn.initializers.orthogonal() # jax.nn.initializers.he_normal()
 
 W = init_fn(wkey, (NUM_HIDDEN, NUM_CHANNELS))
-V = init_fn(vkey, (NUM_HIDDEN, NUM_HIDDEN))
+V = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
 W_out = init_fn(woutkey, (NUM_LABELS, NUM_HIDDEN))
 
-G_W0 = init_fn(G_W_key, (NUM_HIDDEN, NUM_CHANNELS))
-G_V0 = init_fn(G_V_key, (NUM_HIDDEN, NUM_HIDDEN))
+G_W0 = jnp.zeros((NUM_HIDDEN, NUM_CHANNELS))
+G_V0 = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
 W_out0 = jnp.zeros((NUM_LABELS, NUM_HIDDEN))
 
-optim = optax.adam(LEARNING_RATE)
+optim = optax.adamw(LEARNING_RATE)
 # weights = (W, V, W_out)
 weights = (W, W_out)
 opt_state = optim.init(weights)
@@ -152,6 +152,7 @@ for ep in range(EPOCHS):
         loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, W_out0)
         # loss, weights, opt_state = bptt_train_step(in_batch, target_batch, opt_state, weights)
         # loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
+        print(loss.mean() / NUM_TIMESTEPS)
         pbar.set_description(f"Epoch: {ep + 1}, loss: {loss.mean() / NUM_TIMESTEPS}")
     
     train_acc = eval_model(train_loader, model, weights, z0, u0)
