@@ -69,7 +69,8 @@ train_loader = load_shd_or_ssc("shd", PATH, "train", BATCH_SIZE,
                                 nb_steps=NUM_TIMESTEPS, shuffle=True,
                                 workers=NUM_WORKERS)
 test_loader = load_shd_or_ssc("shd", PATH, "test", BATCH_SIZE, 
-                                nb_steps=NUM_TIMESTEPS, shuffle=True)
+                                nb_steps=NUM_TIMESTEPS, shuffle=True,
+                                workers=NUM_WORKERS)
 
 
 # Cross-entropy loss
@@ -139,8 +140,8 @@ W_out0 = jnp.zeros((NUM_LABELS, NUM_HIDDEN))
 
 optim = optax.chain(optax.adamw(LEARNING_RATE, eps=1e-7, weight_decay=1e-3), 
                     optax.clip_by_global_norm(.5))
-# weights = (W, V, W_out)
-weights = (W, W_out)
+# weights = (W, V, W_out) # For recurrence
+weights = (W, W_out) # For no recurrence
 opt_state = optim.init(weights)
 model = SNN_LIF
 #step_fn = make_eprop_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)

@@ -8,7 +8,7 @@ import jax.tree_util as jtu
 
 ### LIF BPTT
 def make_bptt_timeloop(model, loss_fn, unroll: int = 10):
-    def SNN_bptt_timeloop(in_seq, tgt, z0, u0, W, W_out):
+    def SNN_bptt_timeloop(in_seq, tgt, z0, u0, W, W_out):  
         def loop_fn(carry, in_seq):
             z, u, loss = carry
             next_z, next_u = model(in_seq, z, u, W)
