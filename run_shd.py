@@ -27,6 +27,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-d", "--path", default="./data/shd", type=str, help="Path to the dataset.")
 parser.add_argument("-c", "--config", default="./src/synaptax/experiments/shd/config/eprop.yaml", type=str, help="Path to the configuration yaml file.")
 parser.add_argument("-s", "--seed", default=0, type=int, help="Random seed.")
+parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs.")
 
 args = parser.parse_args()
 
@@ -42,7 +43,7 @@ NEURON_MODEL = str(config_dict['neuron_model'])
 LEARNING_RATE = float(config_dict['hyperparameters']['learning_rate'])
 BATCH_SIZE = int(config_dict['hyperparameters']['batch_size'])
 NUM_TIMESTEPS = int(config_dict['hyperparameters']['timesteps'])
-EPOCHS = int(config_dict['hyperparameters']['epochs'])
+EPOCHS = args.epochs
 NUM_HIDDEN = int(config_dict['hyperparameters']['hidden'])
 PATH = str(config_dict['dataset']['folder_path'])
 NUM_WORKERS = int(config_dict['dataset']['num_workers'])
@@ -142,7 +143,10 @@ optim = optax.chain(optax.adamw(LEARNING_RATE, eps=1e-7, weight_decay=1e-3),
 weights = (W, W_out)
 opt_state = optim.init(weights)
 model = SNN_LIF
-step_fn = make_eprop_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+#step_fn = make_eprop_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+#step_fn = make_eprop_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+step_fn = make_bptt_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+#step_fn = make_bptt_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
 
 
 # Training loop
@@ -153,11 +157,11 @@ for ep in range(EPOCHS):
         target_batch = jnp.array(target_batch.numpy())
         target_batch = jnn.one_hot(target_batch, NUM_LABELS)
 
-        # just comment out "bptt" with "eprop" to switch between the two training methods
-        # loss, weights, opt_state = recurrent_eprop_train_step(in_batch, target_batch, opt_state, weights, G_W0, G_V0)
-        loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, W_out0)
-        # loss, weights, opt_state = bptt_train_step(in_batch, target_batch, opt_state, weights)
-        # loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
+         # just comment out "bptt" with "eprop" to switch between the two training methods
+        # With e-prop:
+        #loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, W_out0)
+        # With bptt:
+        loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
         pbar.set_description(f"Epoch: {ep + 1}, loss: {loss.mean() / NUM_TIMESTEPS}")
     
     train_acc = eval_model(train_loader, model, weights, z0, u0)
