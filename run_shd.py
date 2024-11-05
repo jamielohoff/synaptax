@@ -25,7 +25,7 @@ parser.add_argument("-lr", "--learning_rate", default=1e-3, type=float, help="Le
 parser.add_argument("-bs", "--batch_size", default=128, type=int, help="Batch size for the model.")
 parser.add_argument("-ts", "--timesteps", default=100, type=int, help="Number of timesteps for the model.")
 parser.add_argument("-hd", "--hidden", default=256, type=int, help="Hidden layer size for the model.")
-parser.add_argument("-e", "--epochs", default=10, type=int, help="Number of epochs for the model.")
+parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs for the model.")
 parser.add_argument("-d", "--path", default="./data/shd", type=str, help="path to the dataset.")
 parser.add_argument("-s", "--seed", default=0, type=int, help="Random seed.")
 
@@ -70,7 +70,7 @@ test_loader = load_shd_or_ssc("shd", PATH, "test", BATCH_SIZE,
 def ce_loss(z, tgt, W_out):
     out = W_out @ z
     probs = jnn.softmax(out) 
-    return -jnp.dot(tgt, jnp.log(probs))
+    return -jnp.dot(tgt, jnp.log(probs + 1e-8))
 
 
 def predict(in_seq, model, weights, z0, u0):
@@ -131,7 +131,8 @@ G_W0 = jnp.zeros((NUM_HIDDEN, NUM_CHANNELS))
 G_V0 = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
 W_out0 = jnp.zeros((NUM_LABELS, NUM_HIDDEN))
 
-optim = optax.adamw(LEARNING_RATE)
+optim = optax.chain(optax.adamw(LEARNING_RATE, eps=1e-7, weight_decay=1e-3), 
+                    optax.clip_by_global_norm(.5))
 # weights = (W, V, W_out)
 weights = (W, W_out)
 opt_state = optim.init(weights)
@@ -152,7 +153,6 @@ for ep in range(EPOCHS):
         loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, W_out0)
         # loss, weights, opt_state = bptt_train_step(in_batch, target_batch, opt_state, weights)
         # loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
-        print(loss.mean() / NUM_TIMESTEPS)
         pbar.set_description(f"Epoch: {ep + 1}, loss: {loss.mean() / NUM_TIMESTEPS}")
     
     train_acc = eval_model(train_loader, model, weights, z0, u0)

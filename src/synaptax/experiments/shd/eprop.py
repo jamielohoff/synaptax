@@ -9,6 +9,17 @@ import graphax as gx
 mean_axis0 = lambda x: jnp.mean(x, axis=0)
 
 
+def scan(f, init, xs, length=None, unroll=None):
+    if xs is None:
+        xs = [None] * length
+    carry = init
+    ys = []
+    for x in xs:
+        carry, y = f(carry, x)
+        ys.append(y)
+    return carry, None
+
+
 def make_eprop_timeloop(model, loss_fn, unroll: int = 10):
     """
     G: Accumulated gradient of U (hidden state) w.r.t. parameters W and V.
@@ -30,6 +41,9 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10):
             G_W = F_W.copy(G_W_val) # G_W_val is the gradient of prev. timestep w.r.t. W.
 
             H_I = u_grads[0] # grad. of u_next w.r.t. previous timestep u.
+            # TODO: Why do we have NaN values here?
+            F_W.val = jnp.nan_to_num(F_W.val)
+            H_I.val = jnp.nan_to_num(H_I.val)
             G_W = H_I * G_W + F_W
 
             _loss, loss_grads = gx.jacve(loss_fn, order = "rev", argnums=(0, 2), has_aux=True, sparse_representation=True)(next_z, target, W_out)

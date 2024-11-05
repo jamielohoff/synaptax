@@ -17,12 +17,12 @@ def SNN_LIF(x, z, u, W):
     '''
     beta = .95
     threshold = 1.
-    u_next = beta * u + (1. - beta) * jnp.dot(W, x)
+    u_next = beta * u + jnp.dot(W, x)
     surr = surrogate(u_next)
     # Trick so that in forward pass we get the heaviside spike output and in
     # backward pass we get the derivative of surrogate only without heaviside.
     z_next = lax.stop_gradient(jnp.heaviside(u_next-threshold, 0.) - surr) + surr
-    u_next -= z_next * threshold # spike reset
+    u_next -= z_next * threshold # Spike reset
     return z_next, u_next
 
 
