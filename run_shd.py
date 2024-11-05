@@ -17,16 +17,15 @@ from synaptax.experiments.shd.bptt import make_bptt_step, make_bptt_rec_step
 from synaptax.experiments.shd.eprop import make_eprop_step, make_eprop_rec_step
 from synaptax.custom_dataloaders import load_shd_or_ssc
 
+import yaml
+import wandb
+
+#jax.config.update('jax_disable_jit', True)
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("-n", "--neuron_model", default="SNN_LIF", type=str, help="Neuron type for the model.")
-parser.add_argument("-lr", "--learning_rate", default=1e-3, type=float, help="Learning rate for the model.")
-parser.add_argument("-bs", "--batch_size", default=128, type=int, help="Batch size for the model.")
-parser.add_argument("-ts", "--timesteps", default=100, type=int, help="Number of timesteps for the model.")
-parser.add_argument("-hd", "--hidden", default=256, type=int, help="Hidden layer size for the model.")
-parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs for the model.")
-parser.add_argument("-d", "--path", default="./data/shd", type=str, help="path to the dataset.")
+parser.add_argument("-d", "--path", default="./data/shd", type=str, help="Path to the dataset.")
+parser.add_argument("-c", "--config", default="./src/synaptax/experiments/shd/config/eprop.yaml", type=str, help="Path to the configuration yaml file.")
 parser.add_argument("-s", "--seed", default=0, type=int, help="Random seed.")
 
 args = parser.parse_args()
@@ -36,32 +35,38 @@ SEED = args.seed
 key = jrand.PRNGKey(SEED)
 torch.manual_seed(SEED)
 
-NEURON_MODEL = args.neuron_model
-LEARNING_RATE = args.learning_rate
-BATCH_SIZE = args.batch_size
-NUM_TIMESTEPS = args.timesteps
-EPOCHS = args.epochs
-NUM_HIDDEN = args.hidden
-PATH = args.path
+with open(args.config, 'r') as file:
+    config_dict = yaml.safe_load(file)
+
+NEURON_MODEL = str(config_dict['neuron_model'])
+LEARNING_RATE = float(config_dict['hyperparameters']['learning_rate'])
+BATCH_SIZE = int(config_dict['hyperparameters']['batch_size'])
+NUM_TIMESTEPS = int(config_dict['hyperparameters']['timesteps'])
+EPOCHS = int(config_dict['hyperparameters']['epochs'])
+NUM_HIDDEN = int(config_dict['hyperparameters']['hidden'])
+PATH = str(config_dict['dataset']['folder_path'])
+NUM_WORKERS = int(config_dict['dataset']['num_workers'])
 NUM_LABELS = 20
 NUM_CHANNELS = 700
 
-# # Initialize wandb:
-# wandb.login()
+'''
+# Initialize wandb:
+wandb.login()
 
-# run = wandb.init(
-#     # Set the project where this run will be logged
-#     project="synaptax-project",
-#     # Track hyperparameters and run metadata
-#     config={
-#         "learning_rate": args.learning_rate,
-#         "epochs": args.epochs,
-#     },
-# )
-
+run = wandb.init(
+    # Set the project where this run will be logged
+    project=config_dict['task'],
+    # Track hyperparameters and run metadata
+    config={
+        "learning_rate": LEARNING_RATE,
+        "epochs": EPOCHS,
+    },
+)
+'''
 
 train_loader = load_shd_or_ssc("shd", PATH, "train", BATCH_SIZE, 
-                                nb_steps=NUM_TIMESTEPS, shuffle=True)
+                                nb_steps=NUM_TIMESTEPS, shuffle=True,
+                                workers=NUM_WORKERS)
 test_loader = load_shd_or_ssc("shd", PATH, "test", BATCH_SIZE, 
                                 nb_steps=NUM_TIMESTEPS, shuffle=True)
 
