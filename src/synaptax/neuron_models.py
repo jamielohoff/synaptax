@@ -17,7 +17,7 @@ def SNN_LIF(in_, z, u, W):
     """
     beta = 0.95
     threshold = 1.
-    u_next = beta * u + (1. - beta) * jnp.dot(W, in_)
+    u_next = beta * u + jnp.dot(W, in_) # (1. - beta) * 
     surr = surrogate(u_next)
     # Trick so that in forward pass we get the heaviside spike output and in
     # backward pass we get the derivative of surrogate only without heaviside.

@@ -2,6 +2,7 @@ from functools import partial
 import argparse
 # import wandb
 import torch
+import yaml
 from tqdm import tqdm
 
 import jax
@@ -17,10 +18,7 @@ from synaptax.experiments.shd.bptt import make_bptt_step, make_bptt_rec_step
 from synaptax.experiments.shd.eprop import make_eprop_step, make_eprop_rec_step
 from synaptax.custom_dataloaders import load_shd_or_ssc
 
-import yaml
-import wandb
-
-#jax.config.update("jax_disable_jit", True)
+# jax.config.update("jax_disable_jit", True)
 
 parser = argparse.ArgumentParser()
 
@@ -31,7 +29,6 @@ parser.add_argument("-s", "--seed", default=0, type=int, help="Random seed.")
 parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs.")
 
 args = parser.parse_args()
-
 
 SEED = args.seed
 key = jrand.PRNGKey(SEED)
@@ -50,6 +47,7 @@ PATH = str(config_dict["dataset"]["folder_path"])
 NUM_WORKERS = int(config_dict["dataset"]["num_workers"])
 NUM_LABELS = 20
 NUM_CHANNELS = 700
+BURNIN_STEPS = config_dict["hyperparameters"]["burnin_steps"]
 
 """
 # Initialize wandb:
@@ -121,10 +119,11 @@ u0 = jnp.zeros(NUM_HIDDEN)
 wkey, woutkey = jrand.split(key, 2)
 
 init_fn = jnn.initializers.orthogonal(jnp.sqrt(2))
+W_out_init_fn = jnn.initializers.xavier_normal()
 
 W = init_fn(wkey, (NUM_HIDDEN, NUM_CHANNELS))
 V = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
-W_out = init_fn(woutkey, (NUM_LABELS, NUM_HIDDEN))
+W_out = W_out_init_fn(woutkey, (NUM_LABELS, NUM_HIDDEN))
 
 G_W0 = jnp.zeros((NUM_HIDDEN, NUM_CHANNELS))
 G_V0 = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
@@ -136,10 +135,10 @@ optim = optax.chain(optax.adamw(LEARNING_RATE, eps=1e-7, weight_decay=1e-3),
 weights = (W, W_out) # For no recurrence
 opt_state = optim.init(weights)
 model = SNN_LIF
-step_fn = make_eprop_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
-#step_fn = make_eprop_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
-#step_fn = make_bptt_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
-#step_fn = make_bptt_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+step_fn = make_eprop_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS, burnin_steps=BURNIN_STEPS)
+# step_fn = make_eprop_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+# step_fn = make_bptt_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS, burnin_steps=BURNIN_STEPS)
+# step_fn = make_bptt_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
 
 
 # Training loop
@@ -150,11 +149,11 @@ for ep in range(EPOCHS):
         target_batch = jnp.array(target_batch.numpy())
         target_batch = jnn.one_hot(target_batch, NUM_LABELS)
 
-         # just comment out "bptt" with "eprop" to switch between the two training methods
+        # just comment out "bptt" with "eprop" to switch between the two training methods
         # With e-prop:
         loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, W_out0)
         # With bptt:
-        #loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
+        # loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
         pbar.set_description(f"Epoch: {ep + 1}, loss: {loss.mean() / NUM_TIMESTEPS}")
     
     train_acc = eval_model(train_loader, model, weights, z0, u0)

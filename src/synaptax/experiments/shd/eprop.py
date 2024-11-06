@@ -70,7 +70,7 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
         burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
         z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
         init_carry = (z_burnin, u_burnin, G_W0, G_W0, W_out0, .0)
-        final_carry, _ = lax.scan(loop_fn, init_carry, in_seq, unroll=unroll)
+        final_carry, _ = lax.scan(loop_fn, init_carry, in_seq[burnin_steps:], unroll=unroll)
         _, _, _, W_grad, W_out_grad, loss = final_carry
 
         return loss, W_grad, W_out_grad
@@ -79,7 +79,7 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
 
 
 def make_eprop_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):
-    timeloop_fn = make_eprop_timeloop(model, loss_fn, unroll)
+    timeloop_fn = make_eprop_timeloop(model, loss_fn, unroll, burnin_steps)
 
     @jax.jit
     def eprop_train_step(in_batch, target, opt_state, weights, z0, u0, G_W0, W_out0):
@@ -123,7 +123,7 @@ def make_eprop_rec_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int 
             G_W = F_W.copy(G_W_val) # G_W_val is the gradient of prev. timestep u w.r.t. W.
             G_V = F_V.copy(G_V_val) # G_V_val is the gradient of prev. timestep u w.r.t. V.
 
-            H_I = u_grads[0] # grad. of u_next w.r.t. previous timestep u.
+            H_I = u_grads[0] # grad of u_next w.r.t. previous timestep u.
             G_W = H_I * G_W + F_W
             G_V = H_I * G_V + F_V # no recurrent weights
 

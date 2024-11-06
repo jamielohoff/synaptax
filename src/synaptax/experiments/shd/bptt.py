@@ -31,7 +31,7 @@ def make_bptt_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30)
                                   in_seq[:burnin_steps], 
                                   unroll=unroll)
         z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
-        final_carry, _ = lax.scan(loop_fn, (z_burnin, u_burnin, 0.), in_seq, unroll=unroll)
+        final_carry, _ = lax.scan(loop_fn, (z_burnin, u_burnin, 0.), in_seq[burnin_steps:], unroll=unroll)
         _, _, loss = final_carry
         return loss 
 
@@ -39,7 +39,6 @@ def make_bptt_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30)
 
 
 def make_bptt_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):
-
     # Maps through training examples:
     timeloop_fn = make_bptt_timeloop(model, loss_fn, unroll, burnin_steps)
 
