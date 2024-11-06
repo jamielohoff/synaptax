@@ -121,7 +121,7 @@ def xavier_normal(key, shape):
     # Generate random numbers from a normal distribution
     return stddev * jrand.normal(key, shape)
 
-init_fn = xavier_normal # jax.nn.initializers.orthogonal() # jax.nn.initializers.he_normal()
+init_fn = jax.nn.initializers.orthogonal(jnp.sqrt(2)) # jax.nn.initializers.he_normal()
 
 W = init_fn(wkey, (NUM_HIDDEN, NUM_CHANNELS))
 V = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
