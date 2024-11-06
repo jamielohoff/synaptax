@@ -20,22 +20,13 @@ from synaptax.custom_dataloaders import load_shd_or_ssc
 import yaml
 import wandb
 
-#jax.config.update('jax_disable_jit', True)
+#jax.config.update("jax_disable_jit", True)
 
 parser = argparse.ArgumentParser()
 
-<<<<<<< HEAD
-parser.add_argument("-n", "--neuron_model", default="SNN_LIF", type=str, help="Neuron type for the model.")
-parser.add_argument("-lr", "--learning_rate", default=1e-3, type=float, help="Learning rate for the model.")
-parser.add_argument("-bs", "--batch_size", default=128, type=int, help="Batch size for the model.")
-parser.add_argument("-ts", "--timesteps", default=100, type=int, help="Number of timesteps for the model.")
-parser.add_argument("-hd", "--hidden", default=512, type=int, help="Hidden layer size for the model.")
-parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs for the model.")
-parser.add_argument("-d", "--path", default="./data/shd", type=str, help="path to the dataset.")
-=======
 parser.add_argument("-d", "--path", default="./data/shd", type=str, help="Path to the dataset.")
-parser.add_argument("-c", "--config", default="./src/synaptax/experiments/shd/config/params.yaml", type=str, help="Path to the configuration yaml file.")
->>>>>>> f7a61d5ca81bebf5b9055cba690c1a6fc8db7b63
+parser.add_argument("-c", "--config", default="./src/synaptax/experiments/shd/config/params.yaml", 
+                    type=str, help="Path to the configuration yaml file.")
 parser.add_argument("-s", "--seed", default=0, type=int, help="Random seed.")
 parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs.")
 
@@ -46,34 +37,34 @@ SEED = args.seed
 key = jrand.PRNGKey(SEED)
 torch.manual_seed(SEED)
 
-with open(args.config, 'r') as file:
+with open(args.config, "r") as file:
     config_dict = yaml.safe_load(file)
 
-NEURON_MODEL = str(config_dict['neuron_model'])
-LEARNING_RATE = float(config_dict['hyperparameters']['learning_rate'])
-BATCH_SIZE = int(config_dict['hyperparameters']['batch_size'])
-NUM_TIMESTEPS = int(config_dict['hyperparameters']['timesteps'])
+NEURON_MODEL = str(config_dict["neuron_model"])
+LEARNING_RATE = float(config_dict["hyperparameters"]["learning_rate"])
+BATCH_SIZE = int(config_dict["hyperparameters"]["batch_size"])
+NUM_TIMESTEPS = int(config_dict["hyperparameters"]["timesteps"])
 EPOCHS = args.epochs
-NUM_HIDDEN = int(config_dict['hyperparameters']['hidden'])
-PATH = str(config_dict['dataset']['folder_path'])
-NUM_WORKERS = int(config_dict['dataset']['num_workers'])
+NUM_HIDDEN = int(config_dict["hyperparameters"]["hidden"])
+PATH = str(config_dict["dataset"]["folder_path"])
+NUM_WORKERS = int(config_dict["dataset"]["num_workers"])
 NUM_LABELS = 20
 NUM_CHANNELS = 700
 
-'''
+"""
 # Initialize wandb:
 wandb.login()
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project=config_dict['task'],
+    project=config_dict["task"],
     # Track hyperparameters and run metadata
     config={
         "learning_rate": LEARNING_RATE,
         "epochs": EPOCHS,
     },
 )
-'''
+"""
 
 train_loader = load_shd_or_ssc("shd", PATH, "train", BATCH_SIZE, 
                                 nb_steps=NUM_TIMESTEPS, shuffle=True,
@@ -102,7 +93,6 @@ def predict(in_seq, model, weights, z0, u0):
 
     final_carry, _ = lax.scan(loop_fn, (z0, u0, jnp.zeros(NUM_LABELS)), in_seq)
     out = final_carry[2]
-    # probs = jax.nn.softmax(out) # not necessary to use softmax here
     return jnp.argmax(out, axis=0)
 
 
@@ -131,8 +121,6 @@ u0 = jnp.zeros(NUM_HIDDEN)
 wkey, woutkey = jrand.split(key, 2)
 
 init_fn = jnn.initializers.orthogonal(jnp.sqrt(2))
-
-
 
 W = init_fn(wkey, (NUM_HIDDEN, NUM_CHANNELS))
 V = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
