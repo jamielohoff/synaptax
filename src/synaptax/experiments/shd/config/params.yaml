@@ -1,0 +1,13 @@
+task: "SHD_eprop"
+
+neuron_model: "SNN_LIF"
+
+dataset:
+  folder_path: '/Users/kaya/Datasets/SHD'
+  num_workers: 8
+
+hyperparameters:
+  learning_rate: 1e-3
+  batch_size: 256 
+  timesteps: 100 # timesteps for one example in dataset
+  hidden: 1024 # hidden layer size of the model

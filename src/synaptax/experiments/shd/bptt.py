@@ -7,8 +7,16 @@ import jax.tree_util as jtu
 
 
 ### LIF BPTT
-def make_bptt_timeloop(model, loss_fn, unroll: int = 10):
-    def SNN_bptt_timeloop(in_seq, tgt, z0, u0, W, W_out):
+def make_bptt_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
+    def SNN_bptt_timeloop(in_seq, tgt, z0, u0, W, W_out):  
+        def burnin_loop_fn(carry, in_seq):
+            z, u = carry
+            next_z, next_u = model(in_seq, z, u, lax.stop_gradient(W))
+            # By neglecting the gradient wrt. S, we basically compute only the 
+            # implicit recurrence, but not the explicit recurrence
+            new_carry = (next_z, next_u)
+            return new_carry, None
+        
         def loop_fn(carry, in_seq):
             z, u, loss = carry
             next_z, next_u = model(in_seq, z, u, W)
@@ -17,17 +25,23 @@ def make_bptt_timeloop(model, loss_fn, unroll: int = 10):
             loss += loss_fn(next_z, tgt, W_out)
             new_carry = (next_z, next_u, loss)
             return new_carry, None
-
-        final_carry, _ = lax.scan(loop_fn, (z0, u0, 0.), in_seq, unroll=unroll)
+        
+        # Scans through the timesteps of one example:
+        burnin_carry, _ = lax.scan(burnin_loop_fn, (z0, u0), 
+                                  in_seq[:burnin_steps], 
+                                  unroll=unroll)
+        z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
+        final_carry, _ = lax.scan(loop_fn, (z_burnin, u_burnin, 0.), in_seq, unroll=unroll)
         _, _, loss = final_carry
         return loss 
 
     return jax.vmap(SNN_bptt_timeloop, in_axes=(0, 0, None, None, None, None))
 
 
-def make_bptt_step(model, optim, loss_fn, unroll: int = 10):
+def make_bptt_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):
 
-    timeloop_fn = make_bptt_timeloop(model, loss_fn, unroll)
+    # Maps through training examples:
+    timeloop_fn = make_bptt_timeloop(model, loss_fn, unroll, burnin_steps)
 
     @partial(jax.jacrev, argnums=(4, 5), has_aux=True)
     def bptt_loss_and_grad(in_seq, target, z0, u0, _W, _W_out):
@@ -47,8 +61,18 @@ def make_bptt_step(model, optim, loss_fn, unroll: int = 10):
 
 
 ### Recurrent LIF BPTT
-def make_bptt_rec_timeloop(model, loss_fn, unroll: int = 10):
+def make_bptt_rec_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
     def rec_SNN_bptt_timeloop(in_seq, tgt, z0, u0, W, V, W_out):
+        def burnin_loop_fn(carry, in_seq):
+            z, u = carry
+            next_z, next_u = model(in_seq, z, u, 
+                                   lax.stop_gradient(W), 
+                                   lax.stop_gradient(V))
+            # By neglecting the gradient wrt. S, we basically compute only the 
+            # implicit recurrence, but not the explicit recurrence
+            new_carry = (next_z, next_u)
+            return new_carry, None
+        
         def loop_fn(carry, in_seq):
             z, u, loss = carry
             next_z, next_u = model(in_seq, z, u, W, V)
@@ -58,16 +82,24 @@ def make_bptt_rec_timeloop(model, loss_fn, unroll: int = 10):
             new_carry = (next_z, next_u, loss)
             return new_carry, None
 
-        final_carry, _ = lax.scan(loop_fn, (z0, u0, 0.), in_seq, unroll=unroll)
+        burnin_carry, _ = lax.scan(burnin_loop_fn, 
+                                   (z0, u0), 
+                                   in_seq[:burnin_steps], 
+                                   unroll=unroll)
+        z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
+        final_carry, _ = lax.scan(loop_fn, 
+                                  (z_burnin, u_burnin, 0.), 
+                                  in_seq[burnin_steps:], 
+                                  unroll=unroll)
         _, _, loss = final_carry
         return loss 
 
 
     return jax.vmap(rec_SNN_bptt_timeloop, in_axes=(0, 0, None, None, None, None, None))
 
-def make_bptt_rec_step(model, optim, loss_fn, unroll: int = 10):
+def make_bptt_rec_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):
 
-    timeloop_fn = make_bptt_timeloop(model, loss_fn, unroll)
+    timeloop_fn = make_bptt_rec_timeloop(model, loss_fn, unroll, burnin_steps)
 
     @partial(jax.jacrev, argnums=(4, 5, 6), has_aux=True)
     def recurrent_bptt_loss_and_grad(in_seq, target, z0, u0, _W, _V, _W_out):

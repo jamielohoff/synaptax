@@ -17,9 +17,14 @@ from synaptax.experiments.shd.bptt import make_bptt_step, make_bptt_rec_step
 from synaptax.experiments.shd.eprop import make_eprop_step, make_eprop_rec_step
 from synaptax.custom_dataloaders import load_shd_or_ssc
 
+import yaml
+import wandb
+
+#jax.config.update('jax_disable_jit', True)
 
 parser = argparse.ArgumentParser()
 
+<<<<<<< HEAD
 parser.add_argument("-n", "--neuron_model", default="SNN_LIF", type=str, help="Neuron type for the model.")
 parser.add_argument("-lr", "--learning_rate", default=1e-3, type=float, help="Learning rate for the model.")
 parser.add_argument("-bs", "--batch_size", default=128, type=int, help="Batch size for the model.")
@@ -27,7 +32,12 @@ parser.add_argument("-ts", "--timesteps", default=100, type=int, help="Number of
 parser.add_argument("-hd", "--hidden", default=512, type=int, help="Hidden layer size for the model.")
 parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs for the model.")
 parser.add_argument("-d", "--path", default="./data/shd", type=str, help="path to the dataset.")
+=======
+parser.add_argument("-d", "--path", default="./data/shd", type=str, help="Path to the dataset.")
+parser.add_argument("-c", "--config", default="./src/synaptax/experiments/shd/config/params.yaml", type=str, help="Path to the configuration yaml file.")
+>>>>>>> f7a61d5ca81bebf5b9055cba690c1a6fc8db7b63
 parser.add_argument("-s", "--seed", default=0, type=int, help="Random seed.")
+parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs.")
 
 args = parser.parse_args()
 
@@ -36,34 +46,41 @@ SEED = args.seed
 key = jrand.PRNGKey(SEED)
 torch.manual_seed(SEED)
 
-NEURON_MODEL = args.neuron_model
-LEARNING_RATE = args.learning_rate
-BATCH_SIZE = args.batch_size
-NUM_TIMESTEPS = args.timesteps
+with open(args.config, 'r') as file:
+    config_dict = yaml.safe_load(file)
+
+NEURON_MODEL = str(config_dict['neuron_model'])
+LEARNING_RATE = float(config_dict['hyperparameters']['learning_rate'])
+BATCH_SIZE = int(config_dict['hyperparameters']['batch_size'])
+NUM_TIMESTEPS = int(config_dict['hyperparameters']['timesteps'])
 EPOCHS = args.epochs
-NUM_HIDDEN = args.hidden
-PATH = args.path
+NUM_HIDDEN = int(config_dict['hyperparameters']['hidden'])
+PATH = str(config_dict['dataset']['folder_path'])
+NUM_WORKERS = int(config_dict['dataset']['num_workers'])
 NUM_LABELS = 20
 NUM_CHANNELS = 700
 
-# # Initialize wandb:
-# wandb.login()
+'''
+# Initialize wandb:
+wandb.login()
 
-# run = wandb.init(
-#     # Set the project where this run will be logged
-#     project="synaptax-project",
-#     # Track hyperparameters and run metadata
-#     config={
-#         "learning_rate": args.learning_rate,
-#         "epochs": args.epochs,
-#     },
-# )
-
+run = wandb.init(
+    # Set the project where this run will be logged
+    project=config_dict['task'],
+    # Track hyperparameters and run metadata
+    config={
+        "learning_rate": LEARNING_RATE,
+        "epochs": EPOCHS,
+    },
+)
+'''
 
 train_loader = load_shd_or_ssc("shd", PATH, "train", BATCH_SIZE, 
-                                nb_steps=NUM_TIMESTEPS, shuffle=True)
+                                nb_steps=NUM_TIMESTEPS, shuffle=True,
+                                workers=NUM_WORKERS)
 test_loader = load_shd_or_ssc("shd", PATH, "test", BATCH_SIZE, 
-                                nb_steps=NUM_TIMESTEPS, shuffle=True)
+                                nb_steps=NUM_TIMESTEPS, shuffle=True,
+                                workers=NUM_WORKERS)
 
 
 # Cross-entropy loss
@@ -115,6 +132,8 @@ wkey, woutkey = jrand.split(key, 2)
 
 init_fn = jnn.initializers.orthogonal(jnp.sqrt(2))
 
+
+
 W = init_fn(wkey, (NUM_HIDDEN, NUM_CHANNELS))
 V = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
 W_out = init_fn(woutkey, (NUM_LABELS, NUM_HIDDEN))
@@ -125,11 +144,14 @@ W_out0 = jnp.zeros((NUM_LABELS, NUM_HIDDEN))
 
 optim = optax.chain(optax.adamw(LEARNING_RATE, eps=1e-7, weight_decay=1e-3), 
                     optax.clip_by_global_norm(.5))
-# weights = (W, V, W_out)
-weights = (W, W_out)
+# weights = (W, V, W_out) # For recurrence
+weights = (W, W_out) # For no recurrence
 opt_state = optim.init(weights)
 model = SNN_LIF
 step_fn = make_eprop_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+#step_fn = make_eprop_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+#step_fn = make_bptt_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+#step_fn = make_bptt_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
 
 
 # Training loop
@@ -140,11 +162,11 @@ for ep in range(EPOCHS):
         target_batch = jnp.array(target_batch.numpy())
         target_batch = jnn.one_hot(target_batch, NUM_LABELS)
 
-        # just comment out "bptt" with "eprop" to switch between the two training methods
-        # loss, weights, opt_state = recurrent_eprop_train_step(in_batch, target_batch, opt_state, weights, G_W0, G_V0)
+         # just comment out "bptt" with "eprop" to switch between the two training methods
+        # With e-prop:
         loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, W_out0)
-        # loss, weights, opt_state = bptt_train_step(in_batch, target_batch, opt_state, weights)
-        # loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
+        # With bptt:
+        #loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
         pbar.set_description(f"Epoch: {ep + 1}, loss: {loss.mean() / NUM_TIMESTEPS}")
     
     train_acc = eval_model(train_loader, model, weights, z0, u0)
