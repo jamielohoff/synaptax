@@ -130,6 +130,8 @@ def xavier_normal(key, shape):
 
 init_fn = xavier_normal # jax.nn.initializers.orthogonal() # jax.nn.initializers.he_normal()
 
+
+
 W = init_fn(wkey, (NUM_HIDDEN, NUM_CHANNELS))
 V = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
 W_out = init_fn(woutkey, (NUM_LABELS, NUM_HIDDEN))
@@ -144,9 +146,9 @@ optim = optax.chain(optax.adamw(LEARNING_RATE, eps=1e-7, weight_decay=1e-3),
 weights = (W, W_out) # For no recurrence
 opt_state = optim.init(weights)
 model = SNN_LIF
-#step_fn = make_eprop_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+step_fn = make_eprop_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
 #step_fn = make_eprop_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
-step_fn = make_bptt_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+#step_fn = make_bptt_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
 #step_fn = make_bptt_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
 
 
@@ -160,9 +162,9 @@ for ep in range(EPOCHS):
 
          # just comment out "bptt" with "eprop" to switch between the two training methods
         # With e-prop:
-        #loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, W_out0)
+        loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, W_out0)
         # With bptt:
-        loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
+        #loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
         pbar.set_description(f"Epoch: {ep + 1}, loss: {loss.mean() / NUM_TIMESTEPS}")
     
     train_acc = eval_model(train_loader, model, weights, z0, u0)

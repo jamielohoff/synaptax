@@ -16,7 +16,7 @@ def SNN_LIF(in_, z, u, W):
     V: explicit recurrence weights.
     '''
     beta = 0.95
-    threshold = .5
+    threshold = .2
     u_next = beta * u + (1. - beta) * jnp.dot(W, in_)
     surr = surrogate(u_next)
     # Trick so that in forward pass we get the heaviside spike output and in

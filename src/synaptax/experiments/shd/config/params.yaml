@@ -10,4 +10,4 @@ hyperparameters:
   learning_rate: 1e-3
   batch_size: 256 
   timesteps: 100 # timesteps for one example in dataset
-  hidden: 256 # hidden layer size of the model
+  hidden: 1024 # hidden layer size of the model
