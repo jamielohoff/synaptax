@@ -24,7 +24,7 @@ parser.add_argument("-n", "--neuron_model", default="SNN_LIF", type=str, help="N
 parser.add_argument("-lr", "--learning_rate", default=1e-3, type=float, help="Learning rate for the model.")
 parser.add_argument("-bs", "--batch_size", default=128, type=int, help="Batch size for the model.")
 parser.add_argument("-ts", "--timesteps", default=100, type=int, help="Number of timesteps for the model.")
-parser.add_argument("-hd", "--hidden", default=256, type=int, help="Hidden layer size for the model.")
+parser.add_argument("-hd", "--hidden", default=512, type=int, help="Hidden layer size for the model.")
 parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs for the model.")
 parser.add_argument("-d", "--path", default="./data/shd", type=str, help="path to the dataset.")
 parser.add_argument("-s", "--seed", default=0, type=int, help="Random seed.")
@@ -113,15 +113,7 @@ u0 = jnp.zeros(NUM_HIDDEN)
 
 wkey, woutkey = jrand.split(key, 2)
 
-def xavier_normal(key, shape):
-    # Calculate the standard deviation for Xavier normal initialization
-    fan_in, fan_out = shape
-    stddev = jnp.sqrt(2.0 / (fan_in + fan_out))
-    
-    # Generate random numbers from a normal distribution
-    return stddev * jrand.normal(key, shape)
-
-init_fn = jax.nn.initializers.orthogonal(jnp.sqrt(2)) # jax.nn.initializers.he_normal()
+init_fn = jnn.initializers.orthogonal(jnp.sqrt(2))
 
 W = init_fn(wkey, (NUM_HIDDEN, NUM_CHANNELS))
 V = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
