@@ -25,7 +25,7 @@ import wandb
 parser = argparse.ArgumentParser()
 
 parser.add_argument("-d", "--path", default="./data/shd", type=str, help="Path to the dataset.")
-parser.add_argument("-c", "--config", default="./src/synaptax/experiments/shd/config/eprop.yaml", type=str, help="Path to the configuration yaml file.")
+parser.add_argument("-c", "--config", default="./src/synaptax/experiments/shd/config/params.yaml", type=str, help="Path to the configuration yaml file.")
 parser.add_argument("-s", "--seed", default=0, type=int, help="Random seed.")
 parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs.")
 
