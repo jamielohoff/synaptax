@@ -1,7 +1,7 @@
 task: "SHD_eprop"
 
 neuron_model: "SNN_LIF"
-train_algorithm: "eprop"
+train_algorithm: "bptt"
 
 dataset:
   folder_path: "/Users/kaya/Datasets/SHD"

@@ -68,7 +68,7 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
             return new_carry, None
         
         burnin_init_carry = (z0, u0)
-        burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
+        burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=1)
         z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
         init_carry = (z_burnin, u_burnin, G_W0, G_W0, W_out0, .0)
         final_carry, _ = lax.scan(loop_fn, init_carry, in_seq[burnin_steps:], unroll=unroll)
@@ -188,7 +188,7 @@ def make_eprop_rec_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int 
             return new_carry, None
         
         burnin_init_carry = (z0, u0)
-        burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
+        burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=1)
         z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
         init_carry = (z_burnin, u_burnin, G_W0, G_V0, G_W0, G_V0, W_out0, .0)
         final_carry, _ = lax.scan(loop_fn, init_carry, in_seq[burnin_steps:], unroll=unroll)

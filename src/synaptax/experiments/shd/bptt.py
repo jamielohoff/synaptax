@@ -30,7 +30,7 @@ def make_bptt_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30)
         # Scans through the timesteps of one example:
         burnin_carry, _ = lax.scan(burnin_loop_fn, (z0, u0, 0.), 
                                   in_seq[:burnin_steps], 
-                                  unroll=unroll)
+                                  unroll=1)
         burnin_carry = lax.stop_gradient(burnin_carry)
         z_burnin, u_burnin, loss_burnin = (z0, u0, 0.) # burnin_carry
         final_carry, _ = lax.scan(loop_fn, (z_burnin, u_burnin, loss_burnin), in_seq, unroll=unroll)
@@ -86,7 +86,7 @@ def make_bptt_rec_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int =
         burnin_carry, _ = lax.scan(burnin_loop_fn, 
                                    (z0, u0), 
                                    in_seq[:burnin_steps], 
-                                   unroll=unroll)
+                                   unroll=1)
         z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
         final_carry, _ = lax.scan(loop_fn, 
                                   (z_burnin, u_burnin, 0.), 
