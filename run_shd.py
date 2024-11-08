@@ -83,10 +83,10 @@ def predict(in_seq, model, weights, z0, u0):
     W_out = weights[-1]
     Ws = weights[:-1]
     def loop_fn(carry, x):
-        z, u, z_total = carry
+        z, u, out_total = carry
         z_next, u_next = model(x, z, u, *Ws)
-        z_total += jnp.dot(W_out, z_next)
-        carry = (z_next, u_next, z_total)
+        out_total += jnp.dot(W_out, z_next)
+        carry = (z_next, u_next, out_total)
         return carry, None
 
     final_carry, _ = lax.scan(loop_fn, (z0, u0, jnp.zeros(NUM_LABELS)), in_seq)
@@ -96,18 +96,18 @@ def predict(in_seq, model, weights, z0, u0):
 
 # Test for one batch:
 @partial(jax.jit, static_argnums=2)
-def eval_step(in_batch, target_batch, model, weights, z0, u0):
+def eval_step(in_batch, labels, model, weights, z0, u0):
     preds_batch = jax.vmap(predict, in_axes=(0, None, None, None, None))(in_batch, model, weights, z0, u0)
-    return (preds_batch == target_batch).mean()
+    return (preds_batch == labels).mean()
 
 
 # Test loop
 def eval_model(data_loader, model, weights, z0, u0):
     accuracy_batch, num_iters = 0, 0
-    for data, target_batch, lengths in data_loader:
+    for data, labels, lengths in data_loader:
         in_batch = jnp.array(data.numpy()).squeeze()
-        target_batch = jnp.array(target_batch.numpy())
-        accuracy_batch += eval_step(in_batch, target_batch, model, weights, z0, u0)
+        labels = jnp.array(labels.numpy())
+        accuracy_batch += eval_step(in_batch, labels, model, weights, z0, u0)
         num_iters += 1
     return accuracy_batch / num_iters
 
@@ -135,25 +135,26 @@ optim = optax.chain(optax.adamw(LEARNING_RATE, eps=1e-7, weight_decay=1e-3),
 weights = (W, W_out) # For no recurrence
 opt_state = optim.init(weights)
 model = SNN_LIF
-step_fn = make_eprop_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS, burnin_steps=BURNIN_STEPS)
-# step_fn = make_eprop_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
-# step_fn = make_bptt_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS, burnin_steps=BURNIN_STEPS)
-# step_fn = make_bptt_rec_step(model, optim, ce_loss, unroll=NUM_TIMESTEPS)
+step_fn = make_eprop_step(model, optim, ce_loss, unroll=10, burnin_steps=BURNIN_STEPS)
+# step_fn = make_eprop_rec_step(model, optim, ce_loss, unroll=10)
+# step_fn = make_bptt_step(model, optim, ce_loss, unroll=10, burnin_steps=BURNIN_STEPS)
+# step_fn = make_bptt_rec_step(model, optim, ce_loss, unroll=10)
 
+# jax.config.update("jax_disable_jit", True)
 
 # Training loop
 for ep in range(EPOCHS):
     pbar = tqdm(train_loader)
-    for data, target_batch, lengths in pbar:
-        in_batch = jnp.array(data.numpy()).squeeze()
-        target_batch = jnp.array(target_batch.numpy())
-        target_batch = jnn.one_hot(target_batch, NUM_LABELS)
+    for data, labels, lengths in pbar:
+        data = jnp.array(data.numpy()).squeeze()
+        labels = jnp.array(labels.numpy())
+        labels = jnn.one_hot(labels, NUM_LABELS)
 
         # just comment out "bptt" with "eprop" to switch between the two training methods
         # With e-prop:
-        loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, W_out0)
+        loss, weights, opt_state = step_fn(data, labels, opt_state, weights, z0, u0, G_W0, W_out0)
         # With bptt:
-        # loss, weights, opt_state = step_fn(in_batch, target_batch, opt_state, weights, z0, u0)
+        # loss, weights, opt_state = step_fn(in_batch, labels, opt_state, weights, z0, u0)
         pbar.set_description(f"Epoch: {ep + 1}, loss: {loss.mean() / NUM_TIMESTEPS}")
     
     train_acc = eval_model(train_loader, model, weights, z0, u0)

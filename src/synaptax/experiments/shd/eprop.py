@@ -20,6 +20,9 @@ def scan(f, init, xs, length=None, unroll=None):
     return carry, None
 
 
+surrogate = lambda x: 1. / (1. + 10.*jnp.abs(x))
+
+
 def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
     """
     G: Accumulated gradient of U (hidden state) w.r.t. parameters W and V.
@@ -40,29 +43,27 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
 
         def loop_fn(carry, in_seq):
             z, u, G_W_val, W_grad_val, W_out_grad_val, loss = carry
-            outputs, grads = gx.jacve(model, order = "rev", argnums=(2, 3), has_aux=True, sparse_representation=True)(in_seq, z, u, W)
+            outputs, grads = gx.jacve(model, order="rev", argnums=(2, 3), has_aux=True, sparse_representation=True)(in_seq, z, u, W)
             next_z, next_u = outputs
             # grads contain the gradients of z_next and u_next w.r.t. u, W and V. But we ignore grads of z (explicit recurrence) 
-            u_grads = grads[1] # only gradient of u_next w.r.t. u, W and V.
-
-            F_W = u_grads[1] # gradients of u_next w.r.t. W and V respectively.
+            H_I, F_W = grads[1] # only gradient of u_next w.r.t. u, W and V.
+            
             G_W = F_W.copy(G_W_val) # G_W_val is the gradient of prev. timestep w.r.t. W.
+            G_W_next = H_I * G_W + F_W
 
-            H_I = u_grads[0] # grad. of u_next w.r.t. previous timestep u.
-            # TODO: Why do we have NaN values here?
-            F_W.val = jnp.nan_to_num(F_W.val)
-            H_I.val = jnp.nan_to_num(H_I.val)
-            G_W = H_I * G_W + F_W
-
-            _loss, loss_grads = gx.jacve(loss_fn, order = "rev", argnums=(0, 2), has_aux=True, sparse_representation=True)(next_z, target, W_out)
+            # This calculates dL/dz
+            # We still need dz/du to calculate dL/du
+            _loss, loss_grads = gx.jacve(loss_fn, order="rev", argnums=(0, 2), has_aux=True, sparse_representation=True)(next_z, target, W_out)
             loss += _loss
             loss_grad, W_out_grad = loss_grads[0], loss_grads[1]
-            W_grad = loss_grad * G_W
+            dzdu = gx.jacve(surrogate, order="rev", sparse_representation=True)(next_u - 1.)
+            loss_grad = loss_grad * dzdu
+            W_grad = loss_grad * G_W_next
 
             W_grad_val += W_grad.val
             W_out_grad_val += W_out_grad.val
 
-            new_carry = (next_z, next_u, G_W.val, W_grad_val, W_out_grad_val, loss)
+            new_carry = (next_z, next_u, G_W_next.val, W_grad_val, W_out_grad_val, loss)
 
             return new_carry, None
         
@@ -72,21 +73,66 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
         init_carry = (z_burnin, u_burnin, G_W0, G_W0, W_out0, .0)
         final_carry, _ = lax.scan(loop_fn, init_carry, in_seq[burnin_steps:], unroll=unroll)
         _, _, _, W_grad, W_out_grad, loss = final_carry
-
         return loss, W_grad, W_out_grad
 
     return jax.vmap(SNN_eprop_timeloop, in_axes=(0, 0, None, None, None, None, None, None))
+
+
+
+def make_stupid_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
+    """
+    G: Accumulated gradient of U (hidden state) w.r.t. parameters W and V.
+    F: Immediate gradient of U (hidden state) w.r.t. parameters W and V.
+    H: Gradient of current U w.r.t. previous timestep U.
+    in_seq: (batch_dim, num_timesteps, sensor_size)
+    """
+    # TODO: check gradient equivalence!
+    def SNN_stupid_eprop_timeloop(in_seq, target, z0, u0, W, W_out, G_W0, W_out0):
+        def loop_fn(carry, in_seq):
+            z, u, G_W, W_grad, W_out_grad, loss = carry
+            next_z, next_u = model(in_seq, z, u, W)
+            grads = jax.jacrev(model, argnums=(2, 3))(in_seq, z, u, W)
+
+            # grads contain the gradients of z_next and u_next w.r.t. u, W and V. But we ignore grads of z (explicit recurrence) 
+            u_grads = grads[1] # only gradient of u_next w.r.t. u, W and V.
+            H_I = u_grads[0] # grad. of u_next w.r.t. previous timestep u.
+            F_W = u_grads[1] # gradients of u_next w.r.t. W and V respectively.
+            G_W = jnp.einsum("ij,jkl->ikl", H_I, G_W) + F_W
+
+            loss_grads = jax.jacrev(loss_fn, argnums=(0, 2))(next_z, target, W_out)
+            loss += loss_fn(next_z, target, W_out)
+            loss_grad, _W_out_grad = loss_grads[0], loss_grads[1]
+            _W_grad = jnp.einsum("i,ijk->jk", loss_grad, G_W)
+            W_grad += _W_grad
+            W_out_grad += _W_out_grad
+
+            new_carry = (next_z, next_u, G_W, W_grad, W_out_grad, loss)
+
+            return new_carry, None
+        
+        # burnin_init_carry = (z0, u0)
+        # burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
+        z_burnin, u_burnin = z0, u0 # burnin_carry[0], burnin_carry[1]
+        init_carry = (z_burnin, u_burnin, G_W0, jnp.zeros((8, 8)), W_out0, .0)
+        final_carry, _ = lax.scan(loop_fn, init_carry, in_seq, unroll=unroll)
+        _, _, _, W_grad, W_out_grad, loss = final_carry
+
+        return loss, W_grad, W_out_grad
+
+    return jax.vmap(SNN_stupid_eprop_timeloop, in_axes=(0, 0, None, None, None, None, None, None))
+
 
 
 def make_eprop_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):
     timeloop_fn = make_eprop_timeloop(model, loss_fn, unroll, burnin_steps)
 
     @jax.jit
-    def eprop_train_step(in_batch, target, opt_state, weights, z0, u0, G_W0, W_out0):
+    def eprop_train_step(data, labels, opt_state, weights, z0, u0, G_W0, W_out0):
         _W, _W_out = weights
-        loss, W_grad, W_out_grad = timeloop_fn(in_batch, target, z0, u0, _W, _W_out, G_W0, W_out0)
+        loss, W_grad, W_out_grad = timeloop_fn(data, labels, z0, u0, _W, _W_out, G_W0, W_out0)
         # take the mean across the batch dim for all gradient updates
         grads = tuple(map(mean_axis0, (W_grad, W_out_grad)))
+        grads = tuple(map(jnp.nan_to_num, grads))
         updates, opt_state = optim.update(grads, opt_state, params=weights)
         weights = jtu.tree_map(lambda x, y: x + y, weights, updates)
 

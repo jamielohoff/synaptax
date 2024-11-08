@@ -4,25 +4,25 @@ import jax.numpy as jnp
 
 
 # surrogate definition:
-surrogate = lambda x: 1. / (1. + 1.*jnp.abs(x))
+surrogate = lambda x: 1. / (1. + 10.*jnp.abs(x))
 
-def SNN_LIF(in_, z, u, W):
+
+def SNN_LIF(x, z, u, W):
     """
     Single layer SNN with implicit and explicit recurrence.
     x: layer spike inputs.
     z: previous timestep layer spike outputs.
     v: membrane potential.
-    W: implicit recurrence weights.
-    V: explicit recurrence weights.
+    W: forward weights.
     """
-    beta = 0.95
-    threshold = 1.
-    u_next = beta * u + jnp.dot(W, in_) # (1. - beta) * 
-    surr = surrogate(u_next)
+    # beta = 0.95
+    # threshold = 1.
+    u_next = .95 * u + jnp.dot(W, x) # (1. - beta) * 
+    surr = surrogate(u_next-1.)
     # Trick so that in forward pass we get the heaviside spike output and in
     # backward pass we get the derivative of surrogate only without heaviside.
-    z_next = lax.stop_gradient(jnp.heaviside(u_next - threshold, 0.) - surr) + surr
-    u_next -= z_next * threshold
+    z_next = lax.stop_gradient(jnp.heaviside(u_next - 1., 0.) - surr) + surr
+    u_next -= lax.stop_gradient(z_next)
     return z_next, u_next
 
 
@@ -32,12 +32,12 @@ def SNN_rec_LIF(x, z, u, W, V):
     x: layer spike inputs.
     z: previous timestep layer spike outputs.
     v: membrane potential.
-    W: implicit recurrence weights.
+    W: forward weights.
     V: explicit recurrence weights.
     """
     beta = 0.95 # seems to work best with this value
     threshold = 1.
-    u_next = beta * u + (1. - beta) * (jnp.dot(W, x)+ jnp.dot(V, z))
+    u_next = beta * u + jnp.dot(W, x) + jnp.dot(V, z)
     surr = surrogate(u_next)
     # Trick so that in forward pass we get the heaviside spike output and in
     # backward pass we get the derivative of surrogate only without heaviside.
