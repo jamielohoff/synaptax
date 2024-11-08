@@ -75,7 +75,7 @@ def SNN_Sigma_Delta(in_, z, e, u_mem, s, i, W, V):
     i = i * input_decay + act_
     e = i - s
     u_mem = u_mem * membrane_decay + e
-    surr_ = surrogate(u_mem - threshold)
+    surr_ = surrogate(u_mem-threshold)
     z_out = jax.lax.stop_gradient(jnp.heaviside(u_mem-threshold, .0) - surr_) + surr_
     s = s * feedback_decay + z_out
     return z_out, e, u_mem, s, i
