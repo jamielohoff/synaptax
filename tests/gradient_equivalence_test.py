@@ -50,17 +50,14 @@ class TestGradientEquivalence(unittest.TestCase):
             return loss, loss
 
         # Define the input sequence:
-        batch_size = 1
+        batch_size = 16
         T = 100
-        # in_seq = jrand.normal(key, (batch_size, T, 8))
-        # in_seq = jnp.where(in_seq > 0., 1., 0.)
-        # in_seq.at[0, 0, 0].set(1.) # put a single spike in the input sequence
-        in_seq = jnp.ones((batch_size, T, 8))
-        # in_seq = in_seq.at[0, 0, 0:7].set(0.)
+        in_seq = jrand.normal(key, (batch_size, T, 8))
+        in_seq = jnp.where(in_seq > 0., 1., 0.)
 
         # Define the target sequence:
-        target = jnp.zeros(batch_size) # jrand.randint(key, (batch_size,) , minval=0, maxval=4)
-        target = jnp.ones((batch_size, 4)) / 4 # jnn.one_hot(target, 4)
+        target = jrand.randint(key, (batch_size,) , minval=0, maxval=4)
+        target = jnn.one_hot(target, 4)
 
         # Run the eprop and bptt steps:
         eprop_loss, eprop_W_grad, eprop_W_out_grad = eprop_grads(in_seq, target, z0, u0, W, W_out, G_W0, W_out0)
