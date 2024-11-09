@@ -33,18 +33,19 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
     # TODO: check gradient equivalence!
     def SNN_eprop_timeloop(in_seq, target, z0, u0, W, W_out, G_W0, W_out0):
         # NOTE: we might have a vanishing gradient problem here!
-        def burnin_loop_fn(carry, in_seq):
-            z, u = carry
-            outputs = model(in_seq, z, u, W)
-            next_z, next_u = outputs
-            new_carry = (next_z, next_u)
+        # def burnin_loop_fn(carry, in_seq):
+        #     z, u = carry
+        #     outputs = model(in_seq, z, u, W)
+        #     next_z, next_u = outputs
+        #     new_carry = (next_z, next_u)
 
-            return new_carry, None
+        #     return new_carry, None
 
         def loop_fn(carry, in_seq):
             z, u, G_W_val, W_grad_val, W_out_grad_val, loss = carry
             outputs, grads = gx.jacve(model, order="rev", argnums=(2, 3), has_aux=True, sparse_representation=True)(in_seq, z, u, W)
             next_z, next_u = outputs
+            print("z", next_z)
             # grads contain the gradients of z_next and u_next w.r.t. u, W and V. But we ignore grads of z (explicit recurrence) 
             H_I, F_W = grads[1] # only gradient of u_next w.r.t. u, W and V.
             
@@ -67,9 +68,9 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
 
             return new_carry, None
         
-        burnin_init_carry = (z0, u0)
-        burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
-        z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
+        # burnin_init_carry = (z0, u0)
+        # burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
+        z_burnin, u_burnin = z0, u0 # burnin_carry[0], burnin_carry[1]
         init_carry = (z_burnin, u_burnin, G_W0, G_W0, W_out0, .0)
         final_carry, _ = lax.scan(loop_fn, init_carry, in_seq[burnin_steps:], unroll=unroll)
         _, _, _, W_grad, W_out_grad, loss = final_carry
@@ -102,6 +103,9 @@ def make_stupid_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: i
             loss_grads = jax.jacrev(loss_fn, argnums=(0, 2))(next_z, target, W_out)
             loss += loss_fn(next_z, target, W_out)
             loss_grad, _W_out_grad = loss_grads[0], loss_grads[1]
+            dzdu = jax.jacrev(surrogate)(next_u - 1.)
+            loss_grad = loss_grad @ dzdu
+            print("loss grad", loss_grad.shape, dzdu.shape)
             _W_grad = jnp.einsum("i,ijk->jk", loss_grad, G_W)
             W_grad += _W_grad
             W_out_grad += _W_out_grad
@@ -113,14 +117,13 @@ def make_stupid_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: i
         # burnin_init_carry = (z0, u0)
         # burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
         z_burnin, u_burnin = z0, u0 # burnin_carry[0], burnin_carry[1]
-        init_carry = (z_burnin, u_burnin, G_W0, jnp.zeros((8, 8)), W_out0, .0)
+        init_carry = (z_burnin, u_burnin, G_W0, jnp.zeros((8, 8)), W_out0, 0.)
         final_carry, _ = lax.scan(loop_fn, init_carry, in_seq, unroll=unroll)
         _, _, _, W_grad, W_out_grad, loss = final_carry
 
         return loss, W_grad, W_out_grad
 
     return jax.vmap(SNN_stupid_eprop_timeloop, in_axes=(0, 0, None, None, None, None, None, None))
-
 
 
 def make_eprop_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):

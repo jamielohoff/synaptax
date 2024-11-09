@@ -15,14 +15,14 @@ def SNN_LIF(x, z, u, W):
     v: membrane potential.
     W: forward weights.
     """
-    # beta = 0.95
-    # threshold = 1.
-    u_next = .95 * u + jnp.dot(W, x) # (1. - beta) * 
-    surr = surrogate(u_next-1.)
+    beta = 0.95
+    threshold = 1.
+    u_next = beta * u + (1. - beta) * jnp.dot(W, x) # (1. - beta) * 
+    surr = surrogate(u_next - 1.)
     # Trick so that in forward pass we get the heaviside spike output and in
     # backward pass we get the derivative of surrogate only without heaviside.
-    z_next = lax.stop_gradient(jnp.heaviside(u_next - 1., 0.) - surr) + surr
-    u_next -= lax.stop_gradient(z_next)
+    z_next = lax.stop_gradient(jnp.heaviside(u_next - threshold, 0.) - surr) + surr
+    u_next -= lax.stop_gradient(z_next*u_next)
     return z_next, u_next
 
 
@@ -38,11 +38,11 @@ def SNN_rec_LIF(x, z, u, W, V):
     beta = 0.95 # seems to work best with this value
     threshold = 1.
     u_next = beta * u + jnp.dot(W, x) + jnp.dot(V, z)
-    surr = surrogate(u_next)
+    surr = surrogate(u_next - 1.)
     # Trick so that in forward pass we get the heaviside spike output and in
     # backward pass we get the derivative of surrogate only without heaviside.
     z_next = lax.stop_gradient(jnp.heaviside(u_next - threshold, 0.) - surr) + surr
-    u_next -= z_next * threshold
+    u_next -= lax.stop_gradient(z_next * u_next)
     return z_next, u_next
 
 def SNN_rec_LIF_Stopgrad(x, z, u, W, V):
