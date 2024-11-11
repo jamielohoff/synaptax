@@ -95,7 +95,7 @@ def make_bptt_timeloop_ALIF(model, loss_fn, unroll: int = 10, burnin_steps: int 
     return jax.vmap(SNN_bptt_timeloop_ALIF, in_axes=(0, 0, None, None, None, None, None))
 
 
-def make_bptt_ALIF_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):
+def make_bptt_step_ALIF(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):
     # Maps through training examples:
     timeloop_fn = make_bptt_timeloop_ALIF(model, loss_fn, unroll, burnin_steps)
 

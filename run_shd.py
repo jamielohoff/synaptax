@@ -14,12 +14,11 @@ import jax.profiler as profiler
 import optax
 
 from synaptax.neuron_models import SNN_LIF, SNN_rec_LIF, SNN_Sigma_Delta, SNN_ALIF
-from synaptax.experiments.shd.bptt import make_bptt_step, make_bptt_rec_step, make_bptt_ALIF_step
+from synaptax.experiments.shd.bptt import make_bptt_step, make_bptt_rec_step, make_bptt_step_ALIF
 from synaptax.experiments.shd.eprop import make_eprop_step, make_eprop_rec_step, make_eprop_step_ALIF
 from synaptax.custom_dataloaders import load_shd_or_ssc
 
 import yaml
-import wandb
 
 #jax.config.update("jax_disable_jit", True)
 
@@ -36,43 +35,45 @@ SEED = args.seed
 key = jrand.PRNGKey(SEED)
 torch.manual_seed(SEED)
 
+# Read experiment config file for parameters
 with open(args.config, "r") as file:
     config_dict = yaml.safe_load(file)
 
 neuron_model_dict = {
     "SNN_LIF": SNN_LIF,
     "SNN_rec_LIF": SNN_rec_LIF,
-    "SNN_Sigma_Delta": SNN_Sigma_Delta
+    "SNN_Sigma_Delta": SNN_Sigma_Delta,
+    "SNN_ALIF": SNN_ALIF
 }
 
-NEURON_MODEL = str(config_dict['neuron_model'])
-LEARNING_RATE = float(config_dict['hyperparameters']['learning_rate'])
-BATCH_SIZE = int(config_dict['hyperparameters']['batch_size'])
-NUM_TIMESTEPS = int(config_dict['hyperparameters']['timesteps'])
+NEURON_MODEL = config_dict["neuron_model"]
+LEARNING_RATE = config_dict["hyperparameters"]["learning_rate"]
+BATCH_SIZE = config_dict["hyperparameters"]["batch_size"]
+NUM_TIMESTEPS = config_dict["hyperparameters"]["timesteps"]
 EPOCHS = args.epochs
-NUM_HIDDEN = int(config_dict['hyperparameters']['hidden'])
-PATH = str(config_dict['dataset']['folder_path'])
-NUM_WORKERS = int(config_dict['dataset']['num_workers'])
+NUM_HIDDEN = config_dict["hyperparameters"]["hidden"]
+PATH = config_dict["dataset"]["folder_path"]
+NUM_WORKERS = config_dict["dataset"]["num_workers"]
 NUM_LABELS = 20
 NUM_CHANNELS = 700
-BURNIN_STEPS = int(config_dict['hyperparameters']['burnin_steps'])
-LOOP_UNROLL = int(config_dict['hyperparameters']['loop_unroll'])
-TRAIN_ALGORITHM = str(config_dict['train_algorithm'])
+BURNIN_STEPS = config_dict["hyperparameters"]["burnin_steps"]
+LOOP_UNROLL = config_dict["hyperparameters"]["loop_unroll"]
+TRAIN_ALGORITHM = config_dict["train_algorithm"]
 
-'''
+
 # Initialize wandb:
-wandb.login()
+# wandb.login()
 
-run = wandb.init(
-    # Set the project where this run will be logged
-    project=config_dict['task'],
-    # Track hyperparameters and run metadata
-    config={
-        "learning_rate": LEARNING_RATE,
-        "epochs": EPOCHS,
-    },
-)
-'''
+# run = wandb.init(
+#     # Set the project where this run will be logged
+#     project=config_dict["task"],
+#     # Track hyperparameters and run metadata
+#     config={
+#         "learning_rate": LEARNING_RATE,
+#         "epochs": EPOCHS,
+#     },
+# )
+
 
 train_loader = load_shd_or_ssc("shd", PATH, "train", BATCH_SIZE, 
                                 nb_steps=NUM_TIMESTEPS, shuffle=True,
@@ -113,10 +114,10 @@ def eval_step(in_batch, labels, model, weights, z0, u0, a0):
 # Test loop
 def eval_model(data_loader, model, weights, z0, u0, a0):
     accuracy_batch, num_iters = 0, 0
-    for data, target_batch, lengths in data_loader:
+    for data, labels, lengths in data_loader:
         in_batch = jnp.array(data.numpy()).squeeze()
-        labels = jnp.array(labels.numpy())
-        accuracy_batch += eval_step(in_batch, labels, model, weights, z0, u0, a0)
+        target_batch = jnp.array(labels.numpy())
+        accuracy_batch += eval_step(in_batch, target_batch, model, weights, z0, u0, a0)
         num_iters += 1
     return accuracy_batch / num_iters
 
@@ -153,7 +154,7 @@ model = neuron_model_dict[NEURON_MODEL]
 step_fn = make_eprop_step_ALIF(model, optim, ce_loss, unroll=10, burnin_steps=BURNIN_STEPS)
 
 # Training loop
-def run_(partial_step_fn, weights, opt_state):
+def run_experiment(partial_step_fn, weights, opt_state):
     for ep in range(EPOCHS):
         pbar = tqdm(train_loader)
         for data, target_batch, lengths in pbar:
@@ -161,27 +162,27 @@ def run_(partial_step_fn, weights, opt_state):
             target_batch = jnp.array(target_batch.numpy())
             target_batch = jnn.one_hot(target_batch, NUM_LABELS)
 
-            loss, weights, opt_state = partial_step_fn(in_batch=in_batch, 
+            loss, weights, opt_state = partial_step_fn(data=in_batch, 
                                                        weights=weights, 
-                                                       target_batch=target_batch, 
+                                                       labels=target_batch, 
                                                        opt_state=opt_state)
             
             pbar.set_description(f"Epoch: {ep + 1}, loss: {loss.mean() / NUM_TIMESTEPS}")
         
-        train_acc = eval_model(train_loader, model, weights, z0, u0)
-        test_acc = eval_model(test_loader, model, weights, z0, u0)
+        train_acc = eval_model(train_loader, model, weights, z0, u0, a0)
+        test_acc = eval_model(test_loader, model, weights, z0, u0, a0)
         print(f"Epoch: {ep + 1}, Train Acc: {train_acc}, Test Acc: {test_acc}")
     
     return weights
         
 
 def run_eprop():
-    weights = (W, W_out) # For non-recurrent case.
+    weights = (W_out, W) # For non-recurrent case.
     opt_state = optim.init(weights)
     step_fn = make_eprop_step(model, optim, ce_loss, 
                               unroll=LOOP_UNROLL, burnin_steps=BURNIN_STEPS)
     partial_step_fn = partial(step_fn, z0=z0, u0=u0, G_W0=G_W0, W_out0=W_out0)
-    trained_weights = run_(partial_step_fn, weights, opt_state)
+    trained_weights = run_experiment(partial_step_fn, weights, opt_state)
     return trained_weights
 
 def run_eprop_rec():
@@ -190,32 +191,52 @@ def run_eprop_rec():
     step_fn = make_eprop_rec_step(model, optim, ce_loss, 
                                   unroll=LOOP_UNROLL, burnin_steps=BURNIN_STEPS)
     partial_step_fn = partial(step_fn, z0=z0, u0=u0, G_W0=G_W0, G_V0=G_V0, W_out0=W_out0)
-    trained_weights = run_(partial_step_fn, weights, opt_state)
+    trained_weights = run_experiment(partial_step_fn, weights, opt_state)
     return trained_weights
 
 def run_bptt():
-    weights = (W, W_out) # For non-recurrent case.
+    weights = (W_out, W) # For non-recurrent case.
     opt_state = optim.init(weights)
     step_fn = make_bptt_step(model, optim, ce_loss, 
                               unroll=LOOP_UNROLL, burnin_steps=BURNIN_STEPS)
     partial_step_fn = partial(step_fn, z0=z0, u0=u0)
-    trained_weights = run_(partial_step_fn, weights, opt_state)
+    trained_weights = run_experiment(partial_step_fn, weights, opt_state)
     return trained_weights
 
 def run_bptt_rec():
-    weights = (W, V, W_out) # For recurrent case.
+    weights = (W_out, W, V) # For recurrent case.
     opt_state = optim.init(weights)
     step_fn = make_bptt_rec_step(model, optim, ce_loss, 
                               unroll=LOOP_UNROLL, burnin_steps=BURNIN_STEPS)
     partial_step_fn = partial(step_fn, z0=z0, u0=u0)
-    trained_weights = run_(partial_step_fn, weights, opt_state)
+    trained_weights = run_experiment(partial_step_fn, weights, opt_state)
+    return trained_weights
+
+def run_eprop_alif():
+    weights = (W_out, W) # For recurrent case.
+    opt_state = optim.init(weights)
+    step_fn = make_eprop_step_ALIF(model, optim, ce_loss, 
+                                    unroll=LOOP_UNROLL, burnin_steps=BURNIN_STEPS)
+    partial_step_fn = partial(step_fn, z0=z0, u0=u0, a0=a0, G_W_u0=G_W0, G_W_a0=G_W0, W_out0=W_out0)
+    trained_weights = run_experiment(partial_step_fn, weights, opt_state)
+    return trained_weights
+
+def run_bptt_alif():
+    weights = (W_out, W) # For non-recurrent case.
+    opt_state = optim.init(weights)
+    step_fn = make_bptt_step_ALIF(model, optim, ce_loss, 
+                              unroll=LOOP_UNROLL, burnin_steps=BURNIN_STEPS)
+    partial_step_fn = partial(step_fn, z0=z0, u0=u0, a0=a0)
+    trained_weights = run_experiment(partial_step_fn, weights, opt_state)
     return trained_weights
 
 train_algo_dict = {
     "eprop": run_eprop,
     "eprop_rec": run_eprop_rec,
     "bptt": run_bptt,
-    "bptt_rec": run_bptt_rec
+    "bptt_rec": run_bptt_rec,
+    "bptt_alif": run_bptt_alif,
+    "eprop_alif": run_eprop_alif
 }
 
 # profiler.start_trace("/tmp/tensorboard")

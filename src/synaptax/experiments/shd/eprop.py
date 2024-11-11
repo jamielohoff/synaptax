@@ -72,6 +72,21 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
     return jax.vmap(SNN_eprop_timeloop, in_axes=(0, 0, None, None, None, None, None, None))
 
 
+def make_eprop_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):
+    timeloop_fn = make_eprop_timeloop(model, loss_fn, unroll, burnin_steps)
+
+    @jax.jit
+    def eprop_train_step(data, labels, opt_state, z0, u0, G_W0, W_out0, weights):
+        loss, W_grad, W_out_grad = timeloop_fn(data, labels, z0, u0, G_W0, W_out0, *weights)
+        # take the mean across the batch dim for all gradient updates
+        grads = tuple(map(mean_axis0, (W_grad, W_out_grad)))
+        updates, opt_state = optim.update(grads, opt_state, params=weights)
+        weights = jtu.tree_map(lambda x, y: x + y, weights, updates)
+
+        return loss, weights, opt_state
+    
+    return eprop_train_step
+
 
 def make_eprop_timeloop_ALIF(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
     """
@@ -200,22 +215,6 @@ def make_stupid_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: i
         return loss, W_out_grad, W_grad
 
     return jax.vmap(SNN_stupid_eprop_timeloop, in_axes=(0, 0, None, None, None, None, None, None))
-
-
-def make_eprop_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):
-    timeloop_fn = make_eprop_timeloop(model, loss_fn, unroll, burnin_steps)
-
-    @jax.jit
-    def eprop_train_step(data, labels, opt_state, z0, u0, G_W0, W_out0, weights):
-        loss, W_grad, W_out_grad = timeloop_fn(data, labels, z0, u0, G_W0, W_out0, *weights)
-        # take the mean across the batch dim for all gradient updates
-        grads = tuple(map(mean_axis0, (W_grad, W_out_grad)))
-        updates, opt_state = optim.update(grads, opt_state, params=weights)
-        weights = jtu.tree_map(lambda x, y: x + y, weights, updates)
-
-        return loss, weights, opt_state
-    
-    return eprop_train_step
 
 
 def make_eprop_rec_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
