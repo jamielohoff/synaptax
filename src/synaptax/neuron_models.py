@@ -25,15 +25,15 @@ def SNN_LIF(x, z, u, W, beta=.95, threshold=1.):
     return z_next, u_next
 
 
-def SNN_ALIF(x, z, u, a, W, alpha=.95, beta=.95, gamma=1., threshold=1.):
-    a_next = alpha * u + beta* a + gamma * z
-    u_next = alpha * (u-z) + (1.-beta) * (W @ x - a_next)
-    surr = surrogate(u_next - threshold)
+def SNN_ALIF(x, z, u, a, W, alpha=.95, beta=.8, gamma=1., threshold=1.):
+    a_next = alpha*u + beta*a + gamma*z
+    u_next = alpha * (u-z) + (1.-alpha) * (W @ x - a_next)
+    surr = surrogate(u_next-threshold)
     z_next = lax.stop_gradient(jnp.heaviside(u_next-threshold, 0.) - surr) + surr
     return z_next, u_next, a_next
 
 
-def SNN_rec_LIF(x, z, u, W, V, beta = 0.95, threshold = 1.):
+def SNN_rec_LIF(x, z, u, W, V, beta=0.95, threshold=1.):
     """
     Single layer SNN with implicit and explicit recurrence.
     x: layer spike inputs.
@@ -51,7 +51,7 @@ def SNN_rec_LIF(x, z, u, W, V, beta = 0.95, threshold = 1.):
 
     return z_next, u_next
 
-def SNN_rec_LIF_Stopgrad(x, z, u, W, V,  beta = 0.95, threshold = 1.):
+def SNN_rec_LIF_Stopgrad(x, z, u, W, V, beta=0.95, threshold=1.):
     """
     Single layer SNN with implicit and explicit recurrence.
     x: layer spike inputs.

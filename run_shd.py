@@ -20,7 +20,7 @@ from synaptax.custom_dataloaders import load_shd_or_ssc
 
 import yaml
 
-#jax.config.update("jax_disable_jit", True)
+# jax.config.update("jax_disable_jit", True)
 
 parser = argparse.ArgumentParser()
 
@@ -142,16 +142,8 @@ W_out0 = jnp.zeros((NUM_LABELS, NUM_HIDDEN))
 
 optim = optax.chain(optax.adamw(LEARNING_RATE, eps=1e-7, weight_decay=1e-4), 
                     optax.clip_by_global_norm(.5))
-# weights = (W, V, W_out) # For recurrence
-weights = (W_out, W) # For no recurrence
-opt_state = optim.init(weights)
 model = neuron_model_dict[NEURON_MODEL]
-# step_fn = make_eprop_step(model, optim, ce_loss, unroll=10, burnin_steps=BURNIN_STEPS)
-# step_fn = make_eprop_rec_step(model, optim, ce_loss, unroll=10)
-# step_fn = make_bptt_step(model, optim, ce_loss, unroll=10, burnin_steps=BURNIN_STEPS)
-# step_fn = make_bptt_rec_step(model, optim, ce_loss, unroll=10)
-# step_fn = make_bptt_ALIF_step(model, optim, ce_loss, unroll=10)
-step_fn = make_eprop_step_ALIF(model, optim, ce_loss, unroll=10, burnin_steps=BURNIN_STEPS)
+
 
 # Training loop
 def run_experiment(partial_step_fn, weights, opt_state):
