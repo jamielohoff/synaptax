@@ -1,11 +1,11 @@
 task: "SHD_eprop"
 
 neuron_model: "SNN_LIF"
-algorithm: "e-prop"
+train_algorithm: "eprop"
 
 dataset:
   folder_path: "./data/shd"
-  num_workers: 1
+  num_workers: 8
 
 hyperparameters:
   learning_rate: 1e-3
@@ -13,3 +13,4 @@ hyperparameters:
   timesteps: 100 # timesteps for one example in dataset
   hidden: 512 # hidden layer size of the model
   burnin_steps: 1 # burnin period for the model
+  loop_unroll: 10
