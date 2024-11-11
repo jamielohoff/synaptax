@@ -1,4 +1,5 @@
 import jax
+import jax.nn as jnn
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -7,20 +8,7 @@ import graphax as gx
 
 
 mean_axis0 = lambda x: jnp.mean(x, axis=0)
-
-
-def scan(f, init, xs, length=None, unroll=None):
-    if xs is None:
-        xs = [None] * length
-    carry = init
-    ys = []
-    for x in xs:
-        carry, y = f(carry, x)
-        ys.append(y)
-    return carry, None
-
-
-surrogate = lambda x: 1. / (1. + 10.*jnp.abs(x))
+surrogate = lambda x: jnn.sigmoid(10.*x)
 
 
 def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
@@ -31,7 +19,7 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
     in_seq: (batch_dim, num_timesteps, sensor_size)
     """
     # TODO: check gradient equivalence!
-    def SNN_eprop_timeloop(in_seq, target, z0, u0, W, W_out, G_W0, W_out0):
+    def SNN_eprop_timeloop(in_seq, target, z0, u0, G_W0, W_out0, W_out, W):
         # NOTE: we might have a vanishing gradient problem here!
         # def burnin_loop_fn(carry, in_seq):
         #     z, u = carry
@@ -45,18 +33,24 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
             z, u, G_W_val, W_grad_val, W_out_grad_val, loss = carry
             outputs, grads = gx.jacve(model, order="rev", argnums=(2, 3), has_aux=True, sparse_representation=True)(in_seq, z, u, W)
             next_z, next_u = outputs
-            print("z", next_z)
+            print("next_u", next_u)
+            print("next_z", next_z)
             # grads contain the gradients of z_next and u_next w.r.t. u, W and V. But we ignore grads of z (explicit recurrence) 
             H_I, F_W = grads[1] # only gradient of u_next w.r.t. u, W and V.
             
+            print("H_I", H_I)
+            print("F_W", F_W)
+            
             G_W = F_W.copy(G_W_val) # G_W_val is the gradient of prev. timestep w.r.t. W.
             G_W_next = H_I * G_W + F_W
+            # print("G_W_next", G_W_next)
 
             # This calculates dL/dz
             # We still need dz/du to calculate dL/du
             _loss, loss_grads = gx.jacve(loss_fn, order="rev", argnums=(0, 2), has_aux=True, sparse_representation=True)(next_z, target, W_out)
             loss += _loss
             loss_grad, W_out_grad = loss_grads[0], loss_grads[1]
+            # TODO: Put a threshold variable there!
             dzdu = gx.jacve(surrogate, order="rev", sparse_representation=True)(next_u - 1.)
             loss_grad = loss_grad * dzdu
             W_grad = loss_grad * G_W_next
@@ -65,19 +59,103 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
             W_out_grad_val += W_out_grad.val
 
             new_carry = (next_z, next_u, G_W_next.val, W_grad_val, W_out_grad_val, loss)
-
             return new_carry, None
         
         # burnin_init_carry = (z0, u0)
         # burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
         z_burnin, u_burnin = z0, u0 # burnin_carry[0], burnin_carry[1]
-        init_carry = (z_burnin, u_burnin, G_W0, G_W0, W_out0, .0)
-        final_carry, _ = lax.scan(loop_fn, init_carry, in_seq[burnin_steps:], unroll=unroll)
+        init_carry = (z_burnin, u_burnin, G_W0, G_W0, W_out0, 0.)
+        final_carry, _ = lax.scan(loop_fn, init_carry, in_seq, unroll=unroll)
         _, _, _, W_grad, W_out_grad, loss = final_carry
-        return loss, W_grad, W_out_grad
+        return loss, W_out_grad, W_grad
 
     return jax.vmap(SNN_eprop_timeloop, in_axes=(0, 0, None, None, None, None, None, None))
 
+
+
+def make_eprop_timeloop_ALIF(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
+    """
+    G: Accumulated gradient of U (hidden state) w.r.t. parameters W and V.
+    F: Immediate gradient of U (hidden state) w.r.t. parameters W and V.
+    H: Gradient of current U w.r.t. previous timestep U.
+    in_seq: (batch_dim, num_timesteps, sensor_size)
+    """
+    # TODO: check gradient equivalence!
+    def SNN_eprop_timeloop_ALIF(in_seq, target, z0, u0, a0, G_W_u0, G_W_a0, W_out0, W_out, W):
+        # NOTE: we might have a vanishing gradient problem here!
+        # def burnin_loop_fn(carry, in_seq):
+        #     z, u = carry
+        #     outputs = model(in_seq, z, u, W)
+        #     next_z, next_u = outputs
+        #     new_carry = (next_z, next_u)
+
+        #     return new_carry, None
+
+        def loop_fn(carry, in_seq):
+            z, u, a, G_W_u_val, G_W_a_val, W_grad_val, W_out_grad_val, loss = carry
+            outputs, grads = gx.jacve(model, order="rev", argnums=(2, 3, 4), has_aux=True, sparse_representation=True)(in_seq, z, u, a, W)
+            next_z, next_u, next_a = outputs
+            
+            # grads contain the gradients of z_next and u_next w.r.t. u, W and V. But we ignore grads of z (explicit recurrence) 
+            H_I_uu, H_I_ua, F_W_u = grads[1] # only gradient of u_next w.r.t. u, W and V.
+            H_I_au, H_I_aa, F_W_a = grads[2] # only gradient of u_next w.r.t. u, W and V.
+            
+            print("H_I_uu", H_I_uu)
+            print("H_I_ua", H_I_ua)
+            print("H_I_au", H_I_au)
+            print("H_I_aa", H_I_aa)
+            
+            print("F_W_u", F_W_u)
+            print("F_W_a", F_W_a)
+            
+            G_W_u = F_W_u.copy(G_W_u_val) # G_W_val is the gradient of prev. timestep w.r.t. W.
+            G_W_a = F_W_u.copy(G_W_a_val) # G_W_val is the gradient of prev. timestep w.r.t. W.
+            # This should be optimized with a single operation using block-diagonality
+            G_W_u_next = H_I_uu * G_W_u + H_I_ua * G_W_a + F_W_u
+            G_W_a_next = H_I_aa * G_W_a + H_I_au * G_W_u # + F_W_a
+            # print("G_W_next", G_W_next)
+
+            # This calculates dL/dz
+            # We still need dz/du to calculate dL/du
+            _loss, loss_grads = gx.jacve(loss_fn, order="rev", argnums=(0, 2), has_aux=True, sparse_representation=True)(next_z, target, W_out)
+            loss += _loss
+            loss_grad, W_out_grad = loss_grads[0], loss_grads[1]
+            # TODO: Put a threshold variable there!
+            dzdu = gx.jacve(surrogate, order="rev", sparse_representation=True)(next_u - 1.)
+            loss_grad = loss_grad * dzdu
+            W_grad = loss_grad * G_W_u_next
+
+            W_grad_val += W_grad.val
+            W_out_grad_val += W_out_grad.val
+
+            new_carry = (next_z, next_u, next_a, G_W_u_next.val, G_W_a_next.val, W_grad_val, W_out_grad_val, loss)
+            return new_carry, None
+        
+        # burnin_init_carry = (z0, u0, a0)
+        # burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
+        z_burnin, u_burnin, a_burnin = z0, u0, a0 # burnin_carry[0], burnin_carry[1]
+        init_carry = (z_burnin, u_burnin, a_burnin, G_W_u0, G_W_a0, G_W_u0, W_out0, 0.)
+        final_carry, _ = lax.scan(loop_fn, init_carry, in_seq, unroll=unroll)
+        _, _, _, _, _, W_grad, W_out_grad, loss = final_carry
+        return loss, W_out_grad, W_grad
+
+    return jax.vmap(SNN_eprop_timeloop_ALIF, in_axes=(0, 0, None, None, None, None, None, None, None, None))
+
+
+def make_eprop_step_ALIF(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 30):
+    timeloop_fn = make_eprop_timeloop_ALIF(model, loss_fn, unroll, burnin_steps)
+
+    @jax.jit
+    def eprop_train_step(data, labels, opt_state, z0, u0, a0, G_W_u0, G_W_a0, W_out0, weights):
+        loss, W_grad, W_out_grad = timeloop_fn(data, labels, z0, u0, a0, G_W_u0, G_W_a0, W_out0, *weights)
+        # take the mean across the batch dim for all gradient updates
+        grads = tuple(map(mean_axis0, (W_grad, W_out_grad)))
+        updates, opt_state = optim.update(grads, opt_state, params=weights)
+        weights = jtu.tree_map(lambda x, y: x + y, weights, updates)
+
+        return loss, weights, opt_state
+    
+    return eprop_train_step
 
 
 def make_stupid_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
@@ -88,7 +166,7 @@ def make_stupid_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: i
     in_seq: (batch_dim, num_timesteps, sensor_size)
     """
     # TODO: check gradient equivalence!
-    def SNN_stupid_eprop_timeloop(in_seq, target, z0, u0, W, W_out, G_W0, W_out0):
+    def SNN_stupid_eprop_timeloop(in_seq, target, z0, u0, G_W0, W_out0, W, W_out):
         def loop_fn(carry, in_seq):
             z, u, G_W, W_grad, W_out_grad, loss = carry
             next_z, next_u = model(in_seq, z, u, W)
@@ -121,7 +199,7 @@ def make_stupid_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: i
         final_carry, _ = lax.scan(loop_fn, init_carry, in_seq, unroll=unroll)
         _, _, _, W_grad, W_out_grad, loss = final_carry
 
-        return loss, W_grad, W_out_grad
+        return loss, W_out_grad, W_grad
 
     return jax.vmap(SNN_stupid_eprop_timeloop, in_axes=(0, 0, None, None, None, None, None, None))
 
@@ -130,12 +208,10 @@ def make_eprop_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int =
     timeloop_fn = make_eprop_timeloop(model, loss_fn, unroll, burnin_steps)
 
     @jax.jit
-    def eprop_train_step(data, labels, opt_state, weights, z0, u0, G_W0, W_out0):
-        _W, _W_out = weights
-        loss, W_grad, W_out_grad = timeloop_fn(data, labels, z0, u0, _W, _W_out, G_W0, W_out0)
+    def eprop_train_step(data, labels, opt_state, z0, u0, G_W0, W_out0, weights):
+        loss, W_grad, W_out_grad = timeloop_fn(data, labels, z0, u0, G_W0, W_out0, *weights)
         # take the mean across the batch dim for all gradient updates
         grads = tuple(map(mean_axis0, (W_grad, W_out_grad)))
-        grads = tuple(map(jnp.nan_to_num, grads))
         updates, opt_state = optim.update(grads, opt_state, params=weights)
         weights = jtu.tree_map(lambda x, y: x + y, weights, updates)
 

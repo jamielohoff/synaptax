@@ -9,7 +9,7 @@ dataset:
 
 hyperparameters:
   learning_rate: 1e-3
-  batch_size: 256 
+  batch_size: 256
   timesteps: 100 # timesteps for one example in dataset
-  hidden: 256 # hidden layer size of the model
+  hidden: 512 # hidden layer size of the model
   burnin_steps: 1 # burnin period for the model
