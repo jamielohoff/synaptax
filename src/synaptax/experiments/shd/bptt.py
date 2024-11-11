@@ -9,14 +9,14 @@ import jax.tree_util as jtu
 ### LIF BPTT
 def make_bptt_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
     def SNN_bptt_timeloop(in_seq, tgt, z0, u0, W, W_out):  
-        # def burnin_loop_fn(carry, in_seq):
-        #     z, u, loss = carry
-        #     next_z, next_u = model(in_seq, z, u, lax.stop_gradient(W))
-        #     # By neglecting the gradient wrt. S, we basically compute only the 
-        #     # implicit recurrence, but not the explicit recurrence
-        #     loss += loss_fn(next_z, tgt, lax.stop_gradient(W_out))
-        #     new_carry = (next_z, next_u, loss)
-        #     return new_carry, None
+        def burnin_loop_fn(carry, in_seq):
+            z, u, loss = carry
+            next_z, next_u = model(in_seq, z, u, lax.stop_gradient(W))
+            # By neglecting the gradient wrt. S, we basically compute only the 
+            # implicit recurrence, but not the explicit recurrence
+            loss += loss_fn(next_z, tgt, lax.stop_gradient(W_out))
+            new_carry = (next_z, next_u, loss)
+            return new_carry, None
         
         def loop_fn(carry, in_seq):
             z, u, loss = carry
@@ -28,10 +28,10 @@ def make_bptt_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30)
             return new_carry, None
         
         # Scans through the timesteps of one example:
-        # burnin_carry, _ = lax.scan(burnin_loop_fn, (z0, u0, 0.), 
-        #                           in_seq[:burnin_steps], 
-        #                           unroll=unroll)
-        # burnin_carry = lax.stop_gradient(burnin_carry)
+        burnin_carry, _ = lax.scan(burnin_loop_fn, (z0, u0, 0.), 
+                                  in_seq[:burnin_steps], 
+                                  unroll=1)
+        burnin_carry = lax.stop_gradient(burnin_carry)
         z_burnin, u_burnin, loss_burnin = (z0, u0, 0.) # burnin_carry
         final_carry, _ = lax.scan(loop_fn, (z_burnin, u_burnin, loss_burnin), in_seq, unroll=unroll)
         _, _, loss = final_carry
@@ -51,9 +51,9 @@ def make_bptt_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int = 
         return loss, loss
 
     @jax.jit
-    def bptt_train_step(in_seq, target, opt_state, weights, z0, u0):
+    def bptt_train_step(in_batch, target_batch, opt_state, weights, z0, u0):
         _W, _W_out = weights
-        grads, loss = bptt_loss_and_grad(in_seq, target, z0, u0, _W, _W_out)
+        grads, loss = bptt_loss_and_grad(in_batch, target_batch, z0, u0, _W, _W_out)
         updates, opt_state = optim.update(grads, opt_state, params=weights)
         weights = jtu.tree_map(lambda x, y: x + y, weights, updates)
         return loss, weights, opt_state
@@ -86,7 +86,7 @@ def make_bptt_rec_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int =
         burnin_carry, _ = lax.scan(burnin_loop_fn, 
                                    (z0, u0), 
                                    in_seq[:burnin_steps], 
-                                   unroll=unroll)
+                                   unroll=1)
         z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
         final_carry, _ = lax.scan(loop_fn, 
                                   (z_burnin, u_burnin, 0.), 
@@ -109,9 +109,9 @@ def make_bptt_rec_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: in
         return loss, loss
 
     @jax.jit
-    def recurrent_bptt_train_step(in_seq, target, opt_state, weights, z0, u0):
+    def recurrent_bptt_train_step(in_batch, target_batch, opt_state, weights, z0, u0):
         _W, _V, _W_out = weights
-        grads, loss = recurrent_bptt_loss_and_grad(in_seq, target, z0, u0, _W, _V, _W_out)
+        grads, loss = recurrent_bptt_loss_and_grad(in_batch, target_batch, z0, u0, _W, _V, _W_out)
         updates, opt_state = optim.update(grads, opt_state, params=weights)
         weights = jtu.tree_map(lambda x, y: x + y, weights, updates)
         return loss, weights, opt_state

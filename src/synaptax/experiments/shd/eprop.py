@@ -68,9 +68,10 @@ def make_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30
 
             return new_carry, None
         
-        # burnin_init_carry = (z0, u0)
-        # burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
-        z_burnin, u_burnin = z0, u0 # burnin_carry[0], burnin_carry[1]
+        burnin_init_carry = (z0, u0)
+        burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=1)
+        z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
+
         init_carry = (z_burnin, u_burnin, G_W0, G_W0, W_out0, .0)
         final_carry, _ = lax.scan(loop_fn, init_carry, in_seq[burnin_steps:], unroll=unroll)
         _, _, _, W_grad, W_out_grad, loss = final_carry
@@ -130,9 +131,9 @@ def make_eprop_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: int =
     timeloop_fn = make_eprop_timeloop(model, loss_fn, unroll, burnin_steps)
 
     @jax.jit
-    def eprop_train_step(data, labels, opt_state, weights, z0, u0, G_W0, W_out0):
+    def eprop_train_step(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, W_out0):
         _W, _W_out = weights
-        loss, W_grad, W_out_grad = timeloop_fn(data, labels, z0, u0, _W, _W_out, G_W0, W_out0)
+        loss, W_grad, W_out_grad = timeloop_fn(in_batch, target_batch, z0, u0, _W, _W_out, G_W0, W_out0)
         # take the mean across the batch dim for all gradient updates
         grads = tuple(map(mean_axis0, (W_grad, W_out_grad)))
         grads = tuple(map(jnp.nan_to_num, grads))
@@ -191,7 +192,7 @@ def make_eprop_rec_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int 
             return new_carry, None
         
         burnin_init_carry = (z0, u0)
-        burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
+        burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=1)
         z_burnin, u_burnin = burnin_carry[0], burnin_carry[1]
         init_carry = (z_burnin, u_burnin, G_W0, G_V0, G_W0, G_V0, W_out0, .0)
         final_carry, _ = lax.scan(loop_fn, init_carry, in_seq[burnin_steps:], unroll=unroll)
@@ -206,9 +207,9 @@ def make_eprop_rec_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: i
     timeloop_fn = make_eprop_rec_timeloop(model, loss_fn, unroll, burnin_steps)
 
     @jax.jit
-    def recurrent_eprop_train_step(in_batch, target, opt_state, weights, z0, u0, G_W0, G_V0, W_out0):
+    def recurrent_eprop_train_step(in_batch, target_batch, opt_state, weights, z0, u0, G_W0, G_V0, W_out0):
         _W, _V, _W_out = weights
-        loss, W_grad, V_grad, W_out_grad = timeloop_fn(in_batch, target, z0, u0, _W, _V, _W_out, G_W0, G_V0, W_out0)
+        loss, W_grad, V_grad, W_out_grad = timeloop_fn(in_batch, target_batch, z0, u0, _W, _V, _W_out, G_W0, G_V0, W_out0)
         # take the mean across the batch dim for all gradient updates
         grads = map(mean_axis0, (W_grad, V_grad, W_out_grad)) 
         updates, opt_state = optim.update(grads, opt_state, params=weights)
