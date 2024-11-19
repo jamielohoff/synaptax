@@ -1,7 +1,7 @@
 task: "SHD_eprop"
 
 neuron_model: "SNN_ALIF"
-train_algorithm: "eprop_alif"
+train_algorithm: "bptt_alif"
 
 dataset:
   folder_path: "./data/shd"
@@ -10,7 +10,7 @@ dataset:
 hyperparameters:
   learning_rate: 0.001
   batch_size: 256
-  timesteps: 100 # timesteps for one example in dataset
+  timesteps: 10 # timesteps for one example in dataset
   hidden: 1024 # hidden layer size of the model
   burnin_steps: 1 # burnin period for the model
   loop_unroll: 10
