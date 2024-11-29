@@ -9,8 +9,8 @@ import jax.nn as jnn
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.random as jrand
-import jax.profiler as profiler
 
+import equinox as eqx
 import optax
 
 from synaptax.neuron_models import SNN_LIF, SNN_rec_LIF, SNN_Sigma_Delta, SNN_ALIF
@@ -27,7 +27,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-d", "--path", default="./data/shd", type=str, help="Path to the dataset.")
 parser.add_argument("-c", "--config", default="./config/params.yaml", type=str, help="Path to the configuration .yaml file.")
 parser.add_argument("-s", "--seed", default=0, type=int, help="Random seed.")
-parser.add_argument("-e", "--epochs", default=100, type=int, help="Number of epochs.")
+parser.add_argument("-e", "--epochs", default=150, type=int, help="Number of epochs.")
 
 args = parser.parse_args()
 
@@ -55,10 +55,13 @@ NUM_HIDDEN = config_dict["hyperparameters"]["hidden"]
 PATH = config_dict["dataset"]["folder_path"]
 NUM_WORKERS = config_dict["dataset"]["num_workers"]
 NUM_LABELS = 20
-NUM_CHANNELS = 700 # TODO downsample to 140 by factor of 5 using pooling!
+
 BURNIN_STEPS = config_dict["hyperparameters"]["burnin_steps"]
 LOOP_UNROLL = config_dict["hyperparameters"]["loop_unroll"]
 TRAIN_ALGORITHM = config_dict["train_algorithm"]
+WEIGHT_DECAY = config_dict["hyperparameters"]["weight_decay"]
+INPUT_POOLING = config_dict["dataset"]["input_pooling"]
+NUM_CHANNELS = 700//INPUT_POOLING # TODO downsample to 140 by factor of 5 using pooling!
 
 
 # Initialize wandb:
@@ -73,6 +76,16 @@ TRAIN_ALGORITHM = config_dict["train_algorithm"]
 #         "epochs": EPOCHS,
 #     },
 # )
+
+
+# Function for downsampling
+pooling = eqx.nn.Pool(kernel_size=INPUT_POOLING, stride=INPUT_POOLING, 
+                      num_spatial_dims=1, init=0, operation=lax.add)
+
+
+@jax.jit
+def pool(x):
+   return jax.vmap(pooling, in_axes=1, out_axes=1)(x)
 
 
 train_loader = load_shd_or_ssc("shd", PATH, "train", BATCH_SIZE, 
@@ -116,6 +129,7 @@ def eval_model(data_loader, model, weights, z0, u0, a0):
     accuracy_batch, num_iters = 0, 0
     for data, labels, lengths in data_loader:
         in_batch = jnp.array(data.numpy()).squeeze()
+        in_batch = pool(in_batch)
         target_batch = jnp.array(labels.numpy())
         accuracy_batch += eval_step(in_batch, target_batch, model, weights, z0, u0, a0)
         num_iters += 1
@@ -140,7 +154,17 @@ G_W_a0 = jnp.zeros_like(G_W0)
 G_V0 = jnp.zeros((NUM_HIDDEN, NUM_HIDDEN))
 W_out0 = jnp.zeros((NUM_LABELS, NUM_HIDDEN))
 
-optim = optax.chain(optax.adamw(LEARNING_RATE, eps=1e-7, weight_decay=1e-4), 
+# Learning rate scheduling
+num_train_iters = len(train_loader)
+lr_schedule = optax.warmup_cosine_decay_schedule(
+    init_value=LEARNING_RATE/5,
+    peak_value=LEARNING_RATE,
+    warmup_steps=int(num_train_iters),
+    decay_steps=int(EPOCHS*num_train_iters),
+    end_value=1e-4*LEARNING_RATE
+)
+
+optim = optax.chain(optax.adamw(lr_schedule, weight_decay=WEIGHT_DECAY), 
                     optax.clip_by_global_norm(.5))
 model = neuron_model_dict[NEURON_MODEL]
 
@@ -151,6 +175,7 @@ def run_experiment(partial_step_fn, weights, opt_state):
         pbar = tqdm(train_loader)
         for data, target_batch, lengths in pbar:
             in_batch = jnp.array(data.numpy()).squeeze()
+            in_batch = pool(in_batch)
             target_batch = jnp.array(target_batch.numpy())
             target_batch = jnn.one_hot(target_batch, NUM_LABELS)
             loss, weights, opt_state = jax.jit(partial_step_fn)(data=in_batch, 
@@ -230,8 +255,5 @@ train_algo_dict = {
     "eprop_alif": run_eprop_alif
 }
 
-# profiler.start_trace("/tmp/tensorboard")
 new_weights = train_algo_dict[TRAIN_ALGORITHM]()
-# new_weights.block_until_ready()
-# profiler.stop_trace()
 

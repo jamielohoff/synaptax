@@ -137,7 +137,7 @@ def load_shd_or_ssc(
         collate_fn=dataset.generateBatch,
         shuffle=shuffle,
         num_workers=workers,
-        pin_memory=True,
+        pin_memory=True
     )
     return loader
 
