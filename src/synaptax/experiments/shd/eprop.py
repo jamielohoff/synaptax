@@ -156,51 +156,6 @@ def make_eprop_step_ALIF(model, optim, loss_fn, unroll: int = 10, burnin_steps: 
     return eprop_train_step
 
 
-def make_stupid_eprop_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
-    """
-    G: Accumulated gradient of U (hidden state) w.r.t. parameters W and V.
-    F: Immediate gradient of U (hidden state) w.r.t. parameters W and V.
-    H: Gradient of current U w.r.t. previous timestep U.
-    in_seq: (batch_dim, num_timesteps, sensor_size)
-    """
-    # TODO: check gradient equivalence!
-    def SNN_stupid_eprop_timeloop(in_seq, target, z0, u0, G_W0, W_out0, W_out, W):
-        def loop_fn(carry, in_seq):
-            z, u, G_W, W_grad, W_out_grad, loss = carry
-            next_z, next_u = model(in_seq, z, u, W)
-            grads = jax.jacrev(model, argnums=(2, 3))(in_seq, z, u, W)
-
-            # grads contain the gradients of z_next and u_next w.r.t. u, W and V. But we ignore grads of z (explicit recurrence) 
-            u_grads = grads[1] # only gradient of u_next w.r.t. u, W and V.
-            H_I = u_grads[0] # grad. of u_next w.r.t. previous timestep u.
-            F_W = u_grads[1] # gradients of u_next w.r.t. W and V respectively.
-            G_W = jnp.einsum("ij,jkl->ikl", H_I, G_W) + F_W
-
-            loss_grads = jax.jacrev(loss_fn, argnums=(0, 2))(next_z, target, W_out)
-            loss += loss_fn(next_z, target, W_out)
-            loss_grad, _W_out_grad = loss_grads[0], loss_grads[1]
-            dzdu = jax.jacrev(surrogate)(next_u - 1.)
-            loss_grad = loss_grad @ dzdu
-            _W_grad = jnp.einsum("i,ijk->jk", loss_grad, G_W)
-            W_grad += _W_grad
-            W_out_grad += _W_out_grad
-
-            new_carry = (next_z, next_u, G_W, W_grad, W_out_grad, loss)
-
-            return new_carry, None
-        
-        # burnin_init_carry = (z0, u0)
-        # burnin_carry, _ = lax.scan(burnin_loop_fn, burnin_init_carry, in_seq[:burnin_steps], unroll=unroll)
-        z_burnin, u_burnin = z0, u0 # burnin_carry[0], burnin_carry[1]
-        init_carry = (z_burnin, u_burnin, jnp.zeros((4, 4, 4)), G_W0, W_out0, 0.)
-        final_carry, _ = lax.scan(loop_fn, init_carry, in_seq, unroll=unroll)
-        _, _, _, W_grad, W_out_grad, loss = final_carry
-
-        return loss, W_out_grad, W_grad
-
-    return jax.vmap(SNN_stupid_eprop_timeloop, in_axes=(0, 0, None, None, None, None, None, None))
-
-
 def make_eprop_rec_timeloop(model, loss_fn, unroll: int = 10, burnin_steps: int = 30):
     """
     G: Accumulated gradient of U (hidden state) w.r.t. parameters W and V.
@@ -273,4 +228,5 @@ def make_eprop_rec_step(model, optim, loss_fn, unroll: int = 10, burnin_steps: i
         return loss, weights, opt_state
     
     return recurrent_eprop_train_step
+
 
